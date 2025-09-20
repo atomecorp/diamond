@@ -18,12 +18,14 @@ class Parser {
   parseStatement() {
     if (this.match('KEYWORD', 'def')) return this.parseMethodDefinition();
     if (this.match('KEYWORD', 'class')) return this.parseClassDefinition();
+    if (this.match('KEYWORD', 'module')) return this.parseModuleDeclaration();
     if (this.match('KEYWORD', 'if')) return this.parseIfStatement();
     if (this.match('KEYWORD', 'while')) return this.parseWhileStatement();
     if (this.match('KEYWORD', 'loop')) return this.parseLoopStatement();
     if (this.match('KEYWORD', 'case')) return this.parseCaseStatement();
     if (this.match('KEYWORD', 'return')) return this.parseReturnStatement();
     if (this.match('KEYWORD', 'break')) return { type: 'BreakStatement' };
+    if (this.match('KEYWORD', 'using')) return this.parseUsingStatement();
 
     const expr = this.parseAssignment();
 
@@ -90,6 +92,26 @@ class Parser {
     return methodNode;
   }
 
+  parseModuleDeclaration() {
+    const nameToken = this.consume('IDENTIFIER', undefined, 'Expected module name');
+    this.consumeStatementTerminator();
+    const body = this.parseBlock(['end']);
+    this.consume('KEYWORD', 'end', "Expected 'end' to close module");
+    return {
+      type: 'ModuleDeclaration',
+      id: { type: 'Identifier', name: nameToken.value },
+      body: { type: 'BlockStatement', body }
+    };
+  }
+
+  parseUsingStatement() {
+    const nameToken = this.consumeIdentifier('Expected refinement module name after using');
+    return {
+      type: 'UsingStatement',
+      id: { type: 'Identifier', name: nameToken.value }
+    };
+  }
+
   parseMethodParameters() {
     const params = [];
     if (!this.match('OPERATOR', '(')) {
@@ -104,12 +126,25 @@ class Parser {
           continue;
         }
         if (this.match('OPERATOR', '&')) {
-          const block = this.consumeIdentifier('Expected block parameter name');
-          params.push({ type: 'BlockParameter', name: block.value });
+          if (this.check('IDENTIFIER') || this.check('KEYWORD')) {
+            const block = this.advance();
+            params.push({ type: 'BlockParameter', name: block.value });
+          } else {
+            params.push({ type: 'BlockParameter', name: '__block' });
+          }
           continue;
         }
-        const param = this.consumeIdentifier('Expected parameter name');
-        params.push({ type: 'Identifier', name: param.value });
+        const paramToken = this.consumeIdentifier('Expected parameter name');
+        if (this.match('OPERATOR', '=')) {
+          const defaultValue = this.parseExpression();
+          params.push({
+            type: 'OptionalParameter',
+            name: paramToken.value,
+            default: defaultValue
+          });
+          continue;
+        }
+        params.push({ type: 'Identifier', name: paramToken.value });
       } while (this.match('OPERATOR', ','));
     }
 
@@ -193,20 +228,31 @@ class Parser {
 
   parseCaseStatement() {
     let test = null;
-    if (!this.check('NEWLINE') && !this.check('KEYWORD', 'when')) {
+    if (!this.check('NEWLINE') && !this.check('KEYWORD', 'when') && !this.check('KEYWORD', 'in')) {
       test = this.parseExpression();
     }
     this.consumeStatementTerminator();
 
     const clauses = [];
-    while (this.match('KEYWORD', 'when')) {
-      const tests = [];
-      do {
-        tests.push(this.parseExpression());
-      } while (this.match('OPERATOR', ','));
-      this.consumeStatementTerminator();
-      const body = this.parseBlock(['when', 'else', 'end']);
-      clauses.push({ type: 'WhenClause', tests, body: { type: 'BlockStatement', body } });
+    while (true) {
+      if (this.match('KEYWORD', 'when')) {
+        const tests = [];
+        do {
+          tests.push(this.parseExpression());
+        } while (this.match('OPERATOR', ','));
+        this.consumeStatementTerminator();
+        const body = this.parseBlock(['when', 'in', 'else', 'end']);
+        clauses.push({ type: 'WhenClause', tests, body: { type: 'BlockStatement', body } });
+        continue;
+      }
+      if (this.match('KEYWORD', 'in')) {
+        const pattern = this.parsePattern();
+        this.consumeStatementTerminator();
+        const body = this.parseBlock(['when', 'in', 'else', 'end']);
+        clauses.push({ type: 'PatternClause', pattern, body: { type: 'BlockStatement', body } });
+        continue;
+      }
+      break;
     }
 
     let alternate = null;
@@ -226,7 +272,71 @@ class Parser {
       return { type: 'ReturnStatement', argument: null };
     }
     const argument = this.parseExpression();
-    return { type: 'ReturnStatement', argument };
+    const statement = { type: 'ReturnStatement', argument };
+    if (this.match('KEYWORD', 'if') || this.match('KEYWORD', 'unless')) {
+      const keyword = this.previous().value;
+      const test = this.parseExpression();
+      if (keyword === 'if') {
+        return {
+          type: 'IfStatement',
+          test,
+          consequent: { type: 'BlockStatement', body: [statement] },
+          alternate: null
+        };
+      }
+      return {
+        type: 'IfStatement',
+        test: { type: 'UnaryExpression', operator: '!', argument: test },
+        consequent: { type: 'BlockStatement', body: [statement] },
+        alternate: null
+      };
+    }
+    return statement;
+  }
+
+  parsePattern() {
+    if (this.match('OPERATOR', '{')) {
+      return this.parseHashPattern();
+    }
+    throw new SyntaxError('Unsupported pattern');
+  }
+
+  parseHashPattern() {
+    const entries = [];
+    while (!this.check('OPERATOR', '}')) {
+      this.skipNewlines();
+      if (this.check('OPERATOR', '}')) break;
+
+      let keyNode;
+      let binding;
+
+      if (this.check('STRING')) {
+        const keyToken = this.advance();
+        keyNode = { type: 'StringLiteral', value: keyToken.value };
+        this.consume('OPERATOR', '=>', "Expected '=>' after string key in pattern");
+        const bindingToken = this.consume('IDENTIFIER', undefined, 'Expected binding name in pattern');
+        binding = { type: 'Identifier', name: bindingToken.value };
+      } else if (this.check('IDENTIFIER')) {
+        const labelToken = this.advance();
+        keyNode = { type: 'SymbolLiteral', name: labelToken.value };
+        this.consume('OPERATOR', ':', "Expected ':' after key in pattern");
+        if (this.check('IDENTIFIER')) {
+          const bindingToken = this.advance();
+          binding = { type: 'Identifier', name: bindingToken.value };
+        } else {
+          binding = { type: 'Identifier', name: labelToken.value };
+        }
+      } else {
+        throw new SyntaxError('Unsupported hash pattern entry');
+      }
+
+      entries.push({ key: keyNode, binding });
+      this.match('OPERATOR', ',');
+      this.skipNewlines();
+    }
+
+    this.consume('OPERATOR', '}', "Expected '}' to close pattern");
+    return { type: 'HashPattern', entries };
   }
 
   parseBlock(stopKeywords) {
@@ -242,6 +352,29 @@ class Parser {
 
   parseAssignment() {
     const left = this.parseConditional();
+    if (this.check('OPERATOR', ',') && this.isAssignableNode(left)) {
+      const checkpoint = this.current;
+      try {
+        const targets = [this.ensureAssignable(left)];
+        while (this.match('OPERATOR', ',')) {
+          const target = this.parseConditional();
+          targets.push(this.ensureAssignable(target));
+        }
+        this.consume('OPERATOR', '=', 'Expected = after multiple assignment');
+        const right = this.parseAssignment();
+        return {
+          type: 'MultiAssignmentExpression',
+          targets,
+          right
+        };
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          this.current = checkpoint;
+        } else {
+          throw error;
+        }
+      }
+    }
     if (this.match('OPERATOR', '=') || this.matchAssignmentOperator()) {
       const operator = this.previous();
       const right = this.parseAssignment();
@@ -279,6 +412,25 @@ class Parser {
     const valid = ['Identifier', 'InstanceVariable', 'ClassVariable', 'MemberExpression'];
     if (valid.includes(node.type)) return node;
     throw new SyntaxError('Invalid assignment target');
+  }
+
+  isAssignableNode(node) {
+    if (!node) return false;
+    const valid = ['Identifier', 'InstanceVariable', 'ClassVariable', 'MemberExpression'];
+    return valid.includes(node.type);
+  }
+
+  isIndexableExpression(node) {
+    if (!node) return false;
+    const valid = [
+      'Identifier',
+      'MemberExpression',
+      'OptionalMemberExpression',
+      'InstanceVariable',
+      'ClassVariable',
+      'SelfExpression'
+    ];
+    return valid.includes(node.type);
   }
 
   parseLogicalOr() {
@@ -375,9 +527,15 @@ class Parser {
       while (true) {
         if (this.check('NEWLINE')) {
           const next = this.tokens[this.current + 1];
-          if (next && next.type === 'OPERATOR' && (next.value === '.' || next.value === '&.' || next.value === '[')) {
-            this.advance();
-            continue;
+          if (next && next.type === 'OPERATOR') {
+            if (next.value === '.' || next.value === '&.') {
+              this.advance();
+              continue;
+            }
+            if (next.value === '[' && this.isIndexableExpression(expr)) {
+              this.advance();
+              continue;
+            }
           }
           break;
         }
@@ -537,6 +695,10 @@ class Parser {
     if (this.match('NUMBER')) {
       return { type: 'NumericLiteral', value: Number(this.previous().value) };
     }
+    if (this.match('REGEX')) {
+      const token = this.previous();
+      return { type: 'RegExpLiteral', pattern: token.value.pattern, flags: token.value.flags };
+    }
     if (this.match('STRING')) {
       return { type: 'StringLiteral', value: this.previous().value };
     }
@@ -552,9 +714,26 @@ class Parser {
     if (this.match('KEYWORD', 'self')) {
       return { type: 'SelfExpression' };
     }
+    if (this.match('KEYWORD', 'super')) {
+      const args = [];
+      if (this.match('OPERATOR', '(')) {
+        if (!this.check('OPERATOR', ')')) {
+          do {
+            args.push(this.parseExpression());
+          } while (this.match('OPERATOR', ','));
+        }
+        this.consume('OPERATOR', ')', 'Expected closing ) after super arguments');
+      } else if (!this.isTerminator(this.peek())) {
+        args.push(this.parseExpression());
+        while (this.match('OPERATOR', ',')) {
+          args.push(this.parseExpression());
+        }
+      }
+      return { type: 'SuperCall', arguments: args };
+    }
     if (this.match('OPERATOR', ':')) {
-      const name = this.consume('IDENTIFIER', undefined, 'Expected symbol name after :');
-      return { type: 'SymbolLiteral', name: name.value };
+      const token = this.consumeSymbolToken('Expected symbol name after :');
+      return { type: 'SymbolLiteral', name: token.value };
     }
     if (this.match('IDENTIFIER')) {
       const token = this.previous();
@@ -584,10 +763,14 @@ class Parser {
     }
     if (this.match('OPERATOR', '[')) {
       const elements = [];
+      this.skipNewlines();
       if (!this.check('OPERATOR', ']')) {
-        do {
+        while (true) {
           elements.push(this.parseExpression());
-        } while (this.match('OPERATOR', ','));
+          this.skipNewlines();
+          if (!this.match('OPERATOR', ',')) break;
+          this.skipNewlines();
+        }
       }
       this.consume('OPERATOR', ']', 'Expected closing ]');
       return { type: 'ArrayExpression', elements };
@@ -638,10 +821,17 @@ class Parser {
       return { type: 'Identifier', name: this.previous().value };
     }
     if (this.match('OPERATOR', ':')) {
-      const name = this.consume('IDENTIFIER', undefined, 'Expected symbol name');
-      return { type: 'SymbolLiteral', name: name.value };
+      const token = this.consumeSymbolToken('Expected symbol name');
+      return { type: 'SymbolLiteral', name: token.value };
     }
     throw new SyntaxError('Invalid hash key');
+  }
+
+  consumeSymbolToken(message) {
+    if (this.check('IDENTIFIER')) return this.advance();
+    if (this.check('KEYWORD')) return this.advance();
+    if (this.check('OPERATOR')) return this.advance();
+    throw new SyntaxError(message);
   }
 
   parseExpression() {
@@ -746,7 +936,12 @@ class Parser {
         return this.containsYield(node.test) || this.containsYield(node.consequent) || this.containsYield(node.alternate);
       case 'CaseStatement':
         if (node.test && this.containsYield(node.test)) return true;
-        if (node.clauses.some(clause => this.containsYield(clause.body))) return true;
+        for (const clause of node.clauses) {
+          if (clause.type === 'WhenClause' && clause.tests) {
+            if (clause.tests.some(test => this.containsYield(test))) return true;
+          }
+          if (this.containsYield(clause.body)) return true;
+        }
         return node.alternate ? this.containsYield(node.alternate) : false;
       default:
         return false;

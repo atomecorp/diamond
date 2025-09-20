@@ -7,6 +7,15 @@ class Emitter {
     this.indentLevel = 0;
     this.scopeInfo = new Map();
     this.runtimeHelpers = new Set();
+    this.uniqueIdCounter = 0;
+    this.injectedRequires = new Set();
+    this.reservedWords = new Set([
+      'enum', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete',
+      'do', 'else', 'export', 'extends', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof',
+      'new', 'return', 'super', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with',
+      'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public',
+      'null', 'true', 'false', 'arguments'
+    ]);
   }
 
   emit(program) {
@@ -19,13 +28,14 @@ class Emitter {
     const hoistedLines = [];
     if (scope && scope.hoisted.size) {
       for (const name of [...scope.hoisted].sort()) {
-        hoistedLines.push(this.indent() + `let ${name};`);
+        const safeName = this.getRenamedName(scope, name);
+        hoistedLines.push(this.indent() + `let ${safeName};`);
       }
     }
 
     const bodyLines = [];
     for (const statement of node.body) {
-      const code = this.emitStatement(statement, { scopeNode: node });
+      const code = this.emitStatement(statement, { scopeNode: node, scopeStack: [node] });
       if (code) bodyLines.push(code);
     }
 
@@ -175,6 +185,145 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('lazy')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyLazy = (value) => {');
+      lines.push('  if (value && typeof value === "object" && value.__isRubyLazy) return value;');
+      lines.push('  if (Array.isArray(value)) {');
+      lines.push('    const base = value.slice();');
+      lines.push('    const wrapper = {');
+      lines.push('      __isRubyLazy: true,');
+      lines.push('      __target: base,');
+      lines.push('      select(block) {');
+      lines.push('        const fn = typeof block === "function" ? block : (item) => item;');
+      lines.push('        const result = base.filter((item, index) => fn(item, index));');
+      lines.push('        return __rubyLazy(result);');
+      lines.push('      },');
+      lines.push('      map(block) {');
+      lines.push('        const fn = typeof block === "function" ? block : (item) => item;');
+        lines.push('        return __rubyLazy(base.map((item, index) => fn(item, index)));');
+      lines.push('      },');
+      lines.push('      to_a() {');
+      lines.push('        return base.slice();');
+      lines.push('      },');
+      lines.push('      first() {');
+      lines.push('        return base[0];');
+      lines.push('      },');
+      lines.push('      forEach(...args) {');
+      lines.push('        return base.forEach(...args);');
+      lines.push('      }');
+      lines.push('    };');
+      lines.push('    wrapper.filter = wrapper.select;');
+      lines.push('    wrapper[Symbol.iterator] = function() {');
+      lines.push('      return base[Symbol.iterator]();');
+      lines.push('    };');
+      lines.push('    return wrapper;');
+      lines.push('  }');
+      lines.push('  return value;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('fetch')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyFetch = (collection, key, fallback) => {');
+      lines.push('  if (Array.isArray(collection)) {');
+      lines.push('    const index = Number(key);');
+    lines.push('    if (Number.isInteger(index) && index >= 0 && index < collection.length) {');
+      lines.push('      return collection[index];');
+      lines.push('    }');
+      lines.push('  } else if (collection && typeof collection === "object") {');
+      lines.push('    const prop = String(key);');
+      lines.push('    if (prop in collection) {');
+      lines.push('      return collection[prop];');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  if (fallback !== undefined) {');
+      lines.push('    return typeof fallback === "function" ? fallback() : fallback;');
+      lines.push('  }');
+      lines.push('  throw new Error("KeyError");');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('match')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyMatch = (value, pattern) => {');
+      lines.push('  const input = String(value ?? "");');
+      const logic = [
+        '  const regex = pattern instanceof RegExp ? pattern : new RegExp(String(pattern));',
+        '  const result = input.match(regex);',
+        '  if (!result) return null;',
+        '  return {',
+        '    captures: () => result.slice(1)',
+        '  };',
+      ];
+      lines.push(...logic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('publicSend')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyPublicSend = (receiver, methodName, ...args) => {');
+      lines.push('  if (receiver == null) return undefined;');
+      lines.push('  const fn = receiver[methodName];');
+      lines.push('  if (typeof fn === "function") {');
+      lines.push('    return fn.apply(receiver, args);');
+      lines.push('  }');
+      lines.push('  if (typeof methodName === "string") {');
+      lines.push('    const rhs = args[0];');
+      lines.push('    switch (methodName) {');
+      lines.push('      case ">": return receiver > rhs;');
+      lines.push('      case ">=": return receiver >= rhs;');
+      lines.push('      case "<": return receiver < rhs;');
+      lines.push('      case "<=": return receiver <= rhs;');
+      lines.push('      case "==": return receiver === rhs;');
+      lines.push('      case "!=": return receiver !== rhs;');
+    lines.push('      case "===": return receiver === rhs;');
+    lines.push('      case "!==": return receiver !== rhs;');
+      lines.push('      default: break;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  return receiver[methodName];');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('send')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubySend = (receiver, methodName, args = [], block) => {');
+      lines.push('  if (receiver == null) return undefined;');
+      const helperLogic = [
+        '  const fn = receiver[methodName];',
+        '  if (typeof fn === "function") {',
+        '    const callArgs = block === undefined ? args : [...args, block];',
+        '    return fn.apply(receiver, callArgs);',
+        '  }',
+        '  const missing = receiver.method_missing;',
+        '  if (typeof missing === "function") {',
+        '    const missingArgs = block === undefined ? [methodName, ...args] : [methodName, ...args, block];',
+        '    return missing.apply(receiver, missingArgs);',
+        '  }',
+        '  throw new Error(`NoMethodError: undefined method ${methodName}`);',
+      ];
+      lines.push(...helperLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('multiAssign')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyMultiAssign = (value, count) => {');
+      lines.push('  if (value == null) {');
+      lines.push('    return Array.from({ length: count }, () => undefined);');
+      lines.push('  }');
+      lines.push('  if (Array.isArray(value)) {');
+      lines.push('    const result = value.slice(0, count);');
+      lines.push('    while (result.length < count) result.push(undefined);');
+      lines.push('    return result;');
+      lines.push('  }');
+      lines.push('  const result = [value];');
+      lines.push('  while (result.length < count) result.push(undefined);');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('chomp')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyChomp = (value) => {');
@@ -210,6 +359,30 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('hashPattern')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyMatchHashPattern = (value, descriptors) => {');
+      lines.push('  if (value == null || typeof value !== "object") return null;');
+      const descriptorLogic = [
+        '  const bindings = {};',
+        '  for (const descriptor of descriptors) {',
+        '    const { binding, keys } = descriptor;',
+        '    let matched = false;',
+        '    for (const key of keys) {',
+        '      if (key in value) {',
+        '        bindings[binding] = value[key];',
+        '        matched = true;',
+        '        break;',
+        '      }',
+        '    }',
+        '    if (!matched) return null;',
+        '  }',
+        '  return bindings;',
+      ];
+      lines.push(...descriptorLogic);
+      lines.push('};');
+    }
+
     return lines;
   }
 
@@ -221,6 +394,8 @@ class Emitter {
         return this.emitMethodDefinition(node, context);
       case 'ClassDeclaration':
         return this.emitClassDeclaration(node, context);
+      case 'ModuleDeclaration':
+        return this.emitModuleDeclaration(node, context);
       case 'IfStatement':
         return this.emitIfStatement(node, context);
       case 'WhileStatement':
@@ -235,6 +410,8 @@ class Emitter {
         return this.emitCaseStatement(node, context);
       case 'BreakStatement':
         return this.indent() + 'break;';
+      case 'UsingStatement':
+        return this.emitUsingStatement(node, context);
       default:
         throw new Error(`Unsupported statement type: ${node.type}`);
     }
@@ -246,6 +423,22 @@ class Emitter {
 
     if (this.isAttrMacroCall(expressionNode)) {
       return this.emitAttrMacro(expressionNode, context);
+    }
+
+    if (this.isRequireCall(expressionNode)) {
+      return this.emitRequireCall(expressionNode, context);
+    }
+
+    if (this.isExtendCall(expressionNode)) {
+      return this.emitExtendCall(expressionNode, context);
+    }
+
+    if (this.isDefDelegatorsCall(expressionNode, context)) {
+      return this.emitDefDelegators(expressionNode, context);
+    }
+
+    if (this.isRefineCall(expressionNode)) {
+      return this.emitRefineCall(expressionNode, context);
     }
 
     const normalized = this.normalizeExpressionForStatement(expressionNode);
@@ -281,10 +474,213 @@ class Emitter {
     return `${indent}// ${expr.callee.name}(${args})`;
   }
 
+  isRequireCall(expr) {
+    return expr && expr.type === 'CallExpression' && expr.callee.type === 'Identifier' && expr.callee.name === 'require';
+  }
+
+  emitRequireCall(expr, context) {
+    const indent = this.indent();
+    if (!expr.arguments.length) {
+      return `${indent}// require`;
+    }
+    const first = expr.arguments[0];
+    if (first.type === 'StringLiteral') {
+      if (first.value === 'forwardable') {
+        if (this.injectedRequires.has('forwardable')) {
+          return `${indent}// require "forwardable"`;
+        }
+        this.injectedRequires.add('forwardable');
+        return `${indent}const Forwardable = {};`;
+      }
+      return `${indent}// require "${first.value}"`;
+    }
+    const rendered = this.emitExpression(first, context);
+    return `${indent}// require ${rendered}`;
+  }
+
+  isExtendCall(expr) {
+    return expr && expr.type === 'CallExpression' && expr.callee.type === 'Identifier' && expr.callee.name === 'extend';
+  }
+
+  emitExtendCall(expr, context) {
+    const indent = this.indent();
+    const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+    return `${indent}// extend ${args}`;
+  }
+
+  isDefDelegatorsCall(expr, context) {
+    return expr && expr.type === 'CallExpression' && expr.callee.type === 'Identifier' && expr.callee.name === 'def_delegators';
+  }
+
+  emitDefDelegators(expr, context = {}) {
+    const indent = this.indent();
+    const methods = expr.arguments.slice(1)
+      .map(arg => this.resolveDelegatorMethodName(arg))
+      .filter(Boolean);
+
+    if (!methods.length) {
+      const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+      return `${indent}// def_delegators(${args})`;
+    }
+
+    if (!context.inClass) {
+      const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+      return `${indent}// def_delegators(${args})`;
+    }
+
+    const className = context.currentClassName;
+    const receiver = className ? `${className}.prototype` : 'this';
+    const target = this.resolveDelegatorTarget(expr.arguments[0], context);
+    const lines = [];
+
+    const innerIndent = ' '.repeat(this.indentSize);
+    for (const methodName of methods) {
+      lines.push(`${receiver}[${this.quote(methodName)}] = function(...args) {`);
+      lines.push(`${innerIndent}const __target = ${target};`);
+      lines.push(`${innerIndent}const __fn = __target != null ? __target[${this.quote(methodName)}] : undefined;`);
+      lines.push(`${innerIndent}return typeof __fn === "function" ? __fn.apply(__target, args) : undefined;`);
+      lines.push('};');
+    }
+
+    return lines.join('\n');
+  }
+
+  resolveDelegatorTarget(node, context) {
+    if (!node) return 'this';
+    if (node.type === 'SymbolLiteral') {
+      const name = node.name;
+      if (name.startsWith('@@')) {
+        const prop = name.slice(2);
+        const owner = context.currentClassName ? `${context.currentClassName}` : 'this.constructor';
+        return `${owner}.${prop}`;
+      }
+      if (name.startsWith('@')) {
+        return this.instanceVariableReference(name.slice(1));
+      }
+      return `this[${this.quote(name)}]`;
+    }
+    return this.emitExpression(node, context);
+  }
+
+  resolveDelegatorMethodName(node) {
+    if (!node) return null;
+    if (node.type === 'SymbolLiteral') return node.name;
+    if (node.type === 'Identifier') return node.name;
+    if (node.type === 'StringLiteral') return node.value;
+    return null;
+  }
+
+  isRefineCall(expr) {
+    return expr && expr.type === 'CallExpression' && expr.callee.type === 'Identifier' && expr.callee.name === 'refine';
+  }
+
+  emitRefineCall(expr, context) {
+    const indent = this.indent();
+    let targetExpr = 'Object';
+    let blockNode = expr.block;
+
+    if (!blockNode && expr.arguments[0] && expr.arguments[0].type === 'CallExpression' && expr.arguments[0].block) {
+      targetExpr = this.emitExpression(expr.arguments[0].callee, context);
+      blockNode = expr.arguments[0].block;
+    } else if (expr.arguments[0]) {
+      targetExpr = this.emitExpression(expr.arguments[0], context);
+    }
+
+    if (!blockNode) {
+      const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+      return `${indent}// refine(${args})`;
+    }
+
+    const lines = [];
+    const bodyStatements = blockNode.body.body;
+
+    for (const statement of bodyStatements) {
+      if (statement.type === 'MethodDefinition') {
+        lines.push(this.emitRefinedMethod(targetExpr, statement, context));
+      } else {
+        const stmt = this.emitStatement(statement, context);
+        if (stmt) lines.push(stmt);
+      }
+    }
+
+    if (!lines.length) {
+      return `${indent}// refine ${targetExpr}`;
+    }
+
+    return lines.join('\n');
+  }
+
+  emitRefinedMethod(targetExpr, methodNode, context) {
+    const indent = this.indent();
+    const scope = this.scopeInfo.get(methodNode);
+    const params = [];
+    const optionalParams = [];
+    let blockParamName = null;
+    let restParamName = null;
+    let blockFromRest = null;
+
+    for (const param of methodNode.params) {
+      if (param.type === 'RestParameter') {
+        const safeName = this.getRenamedName(scope, param.name);
+        params.push(`...${safeName}`);
+        restParamName = safeName;
+        continue;
+      }
+      if (param.type === 'BlockParameter') {
+        const safeName = this.getRenamedName(scope, param.name);
+        blockParamName = safeName;
+        if (restParamName) {
+          blockFromRest = { rest: restParamName, block: safeName };
+        } else {
+          params.push(safeName);
+        }
+        continue;
+      }
+      if (param.type === 'OptionalParameter') {
+        const safeName = this.getRenamedName(scope, param.name);
+        params.push(safeName);
+        optionalParams.push({ name: safeName, default: param.default });
+        continue;
+      }
+      const safeName = this.getRenamedName(scope, param.name);
+      params.push(safeName);
+    }
+
+    if (methodNode.usesYield && !blockParamName) {
+      blockParamName = '__block';
+      if (restParamName) {
+        blockFromRest = { rest: restParamName, block: blockParamName };
+      } else {
+        params.push(blockParamName);
+      }
+    }
+
+    const fnBody = this.emitFunctionBody(
+      methodNode.body,
+      {
+        ...context,
+        scopeNode: methodNode,
+        scopeStack: [methodNode, ...(context.scopeStack || [])],
+        inFunction: true,
+        allowImplicitReturn: true,
+        methodType: 'instance',
+        blockParamName,
+        optionalParams,
+        blockFromRest,
+        methodBlockInfo: blockFromRest,
+        currentMethodName: methodNode.id.name
+      },
+      scope
+    );
+
+    const paramCode = params.join(', ');
+    return `${indent}${targetExpr}.prototype[${this.quote(methodNode.id.name)}] = function(${paramCode}) ${fnBody};`;
+  }
+
   emitExpression(node, context = {}) {
     switch (node.type) {
       case 'Identifier':
-        return node.name;
+        return this.resolveIdentifierName(node.name, context);
       case 'InstanceVariable':
         return this.instanceVariableReference(node.name);
       case 'ClassVariable':
@@ -295,6 +691,8 @@ class Emitter {
         return String(node.value);
       case 'StringLiteral':
         return this.emitStringLiteral(node, context);
+      case 'RegExpLiteral':
+        return this.emitRegExpLiteral(node);
       case 'BooleanLiteral':
         return node.value ? 'true' : 'false';
       case 'NullLiteral':
@@ -313,6 +711,8 @@ class Emitter {
         return `${this.emitExpression(node.left, context)} ${node.operator} ${this.emitExpression(node.right, context)}`;
       case 'AssignmentExpression':
         return this.emitAssignmentExpression(node, context);
+      case 'MultiAssignmentExpression':
+        return this.emitMultiAssignmentExpression(node, context);
       case 'CallExpression':
         return this.emitCallExpression(node, context);
       case 'MemberExpression':
@@ -327,6 +727,8 @@ class Emitter {
         return this.emitLambdaExpression(node, context);
       case 'YieldExpression':
         return this.emitYieldExpression(node, context);
+      case 'SuperCall':
+        return this.emitSuperCall(node, context);
       default:
         throw new Error(`Unsupported expression type: ${node.type}`);
     }
@@ -348,6 +750,34 @@ class Emitter {
       return `${left} = ${right}`;
     }
     return `${left} ${node.operator} ${right}`;
+  }
+
+  emitMultiAssignmentExpression(node, context) {
+    const targets = node.targets.map(target => this.emitAssignmentTarget(target, context));
+    const right = this.emitExpression(node.right, context);
+    if (targets.length <= 1) {
+      const target = targets[0] ?? 'undefined';
+      return `${target} = ${right}`;
+    }
+    this.requireRuntime('multiAssign');
+    const tempVar = this.generateUniqueId('__multi');
+    const destructure = `[${targets.join(', ')}] = __rubyMultiAssign(${tempVar}, ${targets.length});`;
+    return `(() => { const ${tempVar} = ${right}; ${destructure} return ${tempVar}; })()`;
+  }
+
+  emitAssignmentTarget(target, context) {
+    if (!target) return 'undefined';
+    switch (target.type) {
+      case 'Identifier':
+        return this.resolveIdentifierName(target.name, context);
+      case 'InstanceVariable':
+        return this.instanceVariableReference(target.name);
+      case 'MemberExpression':
+      case 'OptionalMemberExpression':
+        return this.emitExpression(target, context);
+      default:
+        return this.emitExpression(target, context);
+    }
   }
 
   emitCallExpression(node, context) {
@@ -407,6 +837,13 @@ class Emitter {
     let memberProperty = null;
     let memberObjectCode = null;
     if (
+      node.callee.type === 'OptionalMemberExpression' &&
+      !node.callee.computed &&
+      node.callee.property.type === 'Identifier'
+    ) {
+      memberProperty = node.callee.property.name;
+      memberObjectCode = this.emitExpression(node.callee.object, context);
+    } else if (
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
       node.callee.property.type === 'Identifier'
@@ -452,6 +889,14 @@ class Emitter {
         return `__rubyToInteger(${memberObjectCode})`;
       }
 
+      if (memberProperty === 'to_sym' && node.arguments.length === 0) {
+        return `String(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'to_s' && node.arguments.length === 0) {
+        return `String(${memberObjectCode})`;
+      }
+
       if (memberProperty === 'size' && node.arguments.length === 0) {
         return `${memberObjectCode}.length`;
       }
@@ -465,6 +910,52 @@ class Emitter {
         this.requireRuntime('className');
         return `__rubyClassName(${memberObjectCode})`;
       }
+
+      if (memberProperty === 'freeze' && node.arguments.length === 0) {
+        return `Object.freeze(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'lazy' && node.arguments.length === 0) {
+        this.requireRuntime('lazy');
+        return `__rubyLazy(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'fetch') {
+        this.requireRuntime('fetch');
+        const indexArg = node.arguments[0] ? this.emitExpression(node.arguments[0], context) : 'undefined';
+        if (node.arguments.length > 1) {
+          const defaultArg = this.emitExpression(node.arguments[1], context);
+          return `__rubyFetch(${memberObjectCode}, ${indexArg}, ${defaultArg})`;
+        }
+        return `__rubyFetch(${memberObjectCode}, ${indexArg})`;
+      }
+
+      if (memberProperty === 'match') {
+        this.requireRuntime('match');
+        const pattern = node.arguments[0] ? this.emitExpression(node.arguments[0], context) : 'undefined';
+        return `__rubyMatch(${memberObjectCode}, ${pattern})`;
+      }
+    }
+
+    if (memberProperty === 'public_send') {
+      const methodArg = node.arguments[0];
+      const methodNameLiteral = this.extractSymbolName(methodArg);
+      if (methodNameLiteral && node.arguments.length >= 2) {
+        const right = this.emitExpression(node.arguments[1], context);
+        const left = memberObjectCode;
+        const operatorMap = {
+          '==': '===',
+          '!=': '!=='
+        };
+        const jsOperator = operatorMap[methodNameLiteral] ?? methodNameLiteral;
+        if (['>', '>=', '<', '<=', '===', '!=='].includes(jsOperator)) {
+          return `${left} ${jsOperator} ${right}`;
+        }
+      }
+      this.requireRuntime('publicSend');
+      const argCodes = node.arguments.map(arg => this.emitExpression(arg, context));
+      const argsTail = argCodes.length ? `, ${argCodes.join(', ')}` : '';
+      return `__rubyPublicSend(${memberObjectCode}${argsTail})`;
     }
 
     let isConstructorCall = false;
@@ -480,6 +971,10 @@ class Emitter {
       isConstructorCall = true;
     } else if (node.callee.type === 'Identifier' && context.classLevel && context.currentClassName) {
       calleeCode = `${context.currentClassName}.${node.callee.name}`;
+    } else if (node.callee.type === 'Identifier' && context.methodType === 'instance') {
+      const scope = context.scopeNode ? this.scopeInfo.get(context.scopeNode) : null;
+      const isDeclared = scope ? scope.declared.has(node.callee.name) : false;
+      calleeCode = isDeclared ? node.callee.name : `this.${node.callee.name}`;
     } else {
       calleeCode = this.emitExpression(node.callee, context);
     }
@@ -489,8 +984,11 @@ class Emitter {
     if (node.block) {
       blockCode = this.emitBlockFunction(node.block, context);
     }
+    const argsArray = argList.length ? `[${argList.join(', ')}]` : '[]';
+    const blockArg = blockCode ? blockCode : 'undefined';
+    const argsWithBlock = blockCode ? [...argList, blockCode] : [...argList];
 
-    if (memberProperty === 'call') {
+    if (memberProperty === 'call' && node.callee.type !== 'OptionalMemberExpression') {
       const args = argList.join(', ');
       return `${memberObjectCode}(${args})`;
     }
@@ -517,17 +1015,29 @@ class Emitter {
       return `${objectCode}.forEach(${blockCode})`;
     }
 
-    if (blockCode) {
-      argList.push(blockCode);
+    if (node.callee.type === 'OptionalMemberExpression') {
+      const objectCode = this.emitExpression(node.callee.object, context);
+      const args = argsWithBlock.join(', ');
+      const callSuffix = args.length ? `(${args})` : '()';
+      if (node.callee.computed) {
+        const propertyCode = this.emitExpression(node.callee.property, context);
+        return `${objectCode}?.[${propertyCode}]${callSuffix}`;
+      }
+      return `${objectCode}?.${node.callee.property.name}${callSuffix}`;
     }
 
-    const args = argList.join(', ');
+    if (!isConstructorCall && node.callee.type === 'MemberExpression' && !node.callee.computed && node.callee.property.type === 'Identifier') {
+      this.requireRuntime('send');
+      const objectCode = this.emitExpression(node.callee.object, context);
+      return `__rubySend(${objectCode}, ${this.quote(node.callee.property.name)}, ${argsArray}, ${blockArg})`;
+    }
 
     if (isConstructorCall) {
-      return `new ${calleeCode}(${args})`;
+      const ctorArgs = argsWithBlock.join(', ');
+      return `new ${calleeCode}(${ctorArgs})`;
     }
 
-    return `${calleeCode}(${args})`;
+    return `${calleeCode}(${argsWithBlock.join(', ')})`;
   }
   extractCalleeName(callee) {
     if (!callee) return null;
@@ -542,6 +1052,14 @@ class Emitter {
     if (callee && callee.type === 'MemberExpression') {
       return this.emitExpression(callee.object, context);
     }
+    return null;
+  }
+
+  extractSymbolName(node) {
+    if (!node) return null;
+    if (node.type === 'SymbolLiteral') return node.name;
+    if (node.type === 'StringLiteral') return node.value;
+    if (node.type === 'Identifier' && !node.name.startsWith('__')) return node.name;
     return null;
   }
 
@@ -581,8 +1099,8 @@ class Emitter {
   }
 
   emitLambdaExpression(node, context = {}) {
-    let paramNames = node.params.map(param => param.name);
     const scope = this.scopeInfo.get(node);
+    let paramNames = node.params.map(param => this.getRenamedName(scope, param.name));
     if (!paramNames.length) {
       const inferred = this.inferImplicitParams(node.body);
       if (scope) {
@@ -596,6 +1114,7 @@ class Emitter {
       {
         ...context,
         scopeNode: node,
+        scopeStack: [node, ...(context.scopeStack || [])],
         inFunction: true,
         allowImplicitReturn: true,
         blockParamName: null
@@ -615,6 +1134,47 @@ class Emitter {
   emitBlockGiven(context = {}) {
     const target = context.blockParamName ?? '__block';
     return `typeof ${target} === 'function'`;
+  }
+
+  emitSuperCall(node, context = {}) {
+    const methodName = context.currentMethodName;
+    const isStatic = context.methodType === 'static';
+    const hasArgs = node.arguments && node.arguments.length > 0;
+    const argExpressions = hasArgs
+      ? node.arguments.map(arg => this.emitExpression(arg, context))
+      : [];
+    const argList = argExpressions.join(', ');
+
+    if (methodName) {
+      const accessor = this.isValidMethodName(methodName)
+        ? `super.${methodName}`
+        : `super[${this.quote(methodName)}]`;
+      const receiver = isStatic ? 'this' : 'this';
+      const guardLines = [];
+      guardLines.push(`(() => {`);
+      guardLines.push(`  const __superMethod = ${accessor};`);
+      guardLines.push(`  if (typeof __superMethod !== 'function') {`);
+      if (methodName === 'method_missing') {
+        const receiverExpr = isStatic ? 'this' : 'this';
+        const missingExpr = argExpressions.length ? argExpressions[0] : 'arguments[0]';
+        guardLines.push(`    throw new Error("NoMethodError: undefined method " + String(${missingExpr}) + " for " + String(${receiverExpr}));`);
+      } else {
+        guardLines.push(`    throw new Error(${this.quote(`NoMethodError: super has no method ${methodName}`)});`);
+      }
+      guardLines.push('  }');
+      if (hasArgs) {
+        guardLines.push(`  return __superMethod.call(${receiver}${argList.length ? ', ' + argList : ''});`);
+      } else {
+        guardLines.push(`  return __superMethod.apply(${receiver}, arguments);`);
+      }
+      guardLines.push('})()');
+      return guardLines.join(' ');
+    }
+
+    if (hasArgs) {
+      return `super(${argList})`;
+    }
+    return 'super(...arguments)';
   }
 
   resolveDefineMethodTarget(context, callee) {
@@ -701,7 +1261,10 @@ class Emitter {
   }
 
   emitOptionalMemberExpression(node, context) {
-    const objectCode = this.emitExpression(node.object, context);
+    let objectCode = this.emitExpression(node.object, context);
+    if (['LogicalExpression', 'BinaryExpression', 'ConditionalExpression'].includes(node.object.type)) {
+      objectCode = `(${objectCode})`;
+    }
     if (node.computed) {
       const propertyCode = this.emitExpression(node.property, context);
       return `${objectCode}?.[${propertyCode}]`;
@@ -724,7 +1287,13 @@ class Emitter {
       const right = this.emitExpression(node.right, context);
       return `${left}.push(${right})`;
     }
-    return `${this.emitExpression(node.left, context)} ${this.mapBinaryOperator(node.operator)} ${this.emitExpression(node.right, context)}`;
+    const left = node.left.type === 'LogicalExpression'
+      ? `(${this.emitExpression(node.left, context)})`
+      : this.emitExpression(node.left, context);
+    const right = node.right.type === 'LogicalExpression'
+      ? `(${this.emitExpression(node.right, context)})`
+      : this.emitExpression(node.right, context);
+    return `${left} ${this.mapBinaryOperator(node.operator)} ${right}`;
   }
 
   emitStringLiteral(node, context) {
@@ -742,6 +1311,15 @@ class Emitter {
     return '`' + rendered.join('') + '`';
   }
 
+  emitRegExpLiteral(node) {
+    let source = node.pattern
+      .replace(/\\A/g, '^')
+      .replace(/\\z/g, '$');
+    const pattern = JSON.stringify(source).slice(1, -1);
+    const filteredFlags = (node.flags || '').replace(/[^gimuy]/g, '');
+    return `new RegExp("${pattern}", "${filteredFlags}")`;
+  }
+
   emitMethodDefinition(node, context = {}) {
     const scope = this.scopeInfo.get(node);
     const indent = this.indent();
@@ -749,29 +1327,65 @@ class Emitter {
     const isConstructor = !isStatic && context.inClass && node.id.name === 'initialize';
     const methodName = isConstructor ? 'constructor' : node.id.name;
     const paramNames = [];
+    const optionalParams = [];
     let blockParamName = null;
+    let restParamName = null;
+    let blockFromRest = null;
 
     for (const param of node.params) {
       if (param.type === 'RestParameter') {
-        paramNames.push(`...${param.name}`);
+        const safeName = this.getRenamedName(scope, param.name);
+        paramNames.push(`...${safeName}`);
+        restParamName = safeName;
         continue;
       }
       if (param.type === 'BlockParameter') {
-        paramNames.push(param.name);
-        blockParamName = param.name;
+        const safeName = this.getRenamedName(scope, param.name);
+        blockParamName = safeName;
+        if (restParamName) {
+          blockFromRest = { rest: restParamName, block: safeName };
+        } else {
+          paramNames.push(safeName);
+        }
         continue;
       }
-      paramNames.push(param.name);
+      if (param.type === 'OptionalParameter') {
+        const safeName = this.getRenamedName(scope, param.name);
+        paramNames.push(safeName);
+        optionalParams.push({ name: safeName, default: param.default });
+        continue;
+      }
+      const safeName = this.getRenamedName(scope, param.name);
+      paramNames.push(safeName);
     }
 
     if (node.usesYield && !blockParamName) {
       blockParamName = '__block';
-      paramNames.push(blockParamName);
+      if (restParamName) {
+        blockFromRest = { rest: restParamName, block: blockParamName };
+      } else {
+        paramNames.push(blockParamName);
+      }
     }
 
-    const header = context.inClass
-      ? `${indent}${isStatic ? 'static ' : ''}${methodName}(${paramNames.join(', ')})`
-      : `${indent}function ${methodName}(${paramNames.join(', ')})`;
+    const paramsCode = paramNames.join(', ');
+    let header;
+    if (context.inClass) {
+      if (isConstructor) {
+        header = `${indent}${methodName}(${paramsCode})`;
+      } else {
+        const methodKey = this.isValidMethodName(methodName) ? methodName : `[${this.quote(methodName)}]`;
+        const prefix = isStatic ? 'static ' : '';
+        header = `${indent}${prefix}${methodKey}(${paramsCode})`;
+      }
+    } else {
+      if (this.isValidMethodName(methodName)) {
+        header = `${indent}function ${methodName}(${paramsCode})`;
+      } else {
+        const tempName = this.generateUniqueId('__method');
+        header = `${indent}const ${tempName} = function(${paramsCode})`;
+      }
+    }
 
     const allowImplicitReturn = !(context.inClass && methodName === 'constructor');
     const body = this.emitFunctionBody(
@@ -779,10 +1393,15 @@ class Emitter {
       {
         ...context,
         scopeNode: node,
+        scopeStack: [node, ...(context.scopeStack || [])],
         inFunction: true,
         allowImplicitReturn,
         methodType: isStatic ? 'static' : 'instance',
-        blockParamName
+        blockParamName,
+        optionalParams,
+        blockFromRest,
+        methodBlockInfo: blockFromRest,
+        currentMethodName: methodName
       },
       scope
     );
@@ -796,14 +1415,36 @@ class Emitter {
     const lines = [];
     if (scope) {
       for (const name of [...scope.hoisted].sort()) {
-        lines.push(this.indent() + `let ${name};`);
+        const safeName = this.getRenamedName(scope, name);
+        lines.push(this.indent() + `let ${safeName};`);
       }
+    }
+
+    if (context.optionalParams && context.optionalParams.length) {
+      for (const param of context.optionalParams) {
+        const defaultValue = this.emitExpression(param.default, context);
+        lines.push(this.indent() + `if (${param.name} === undefined) ${param.name} = ${defaultValue};`);
+      }
+    }
+
+    if (context.blockFromRest && context.blockFromRest.rest && context.blockFromRest.block) {
+      const restName = context.blockFromRest.rest;
+      const blockName = context.blockFromRest.block;
+      const candidate = this.generateUniqueId('__blockCandidate');
+      const candidateDecl = `${candidate}`;
+      const blockCheck = `typeof ${candidateDecl} === 'function'`;
+      lines.push(this.indent() + `const ${candidateDecl} = ${restName}.length ? ${restName}[${restName}.length - 1] : undefined;`);
+      lines.push(this.indent() + `const ${blockName} = ${blockCheck} ? ${candidateDecl} : undefined;`);
+      lines.push(this.indent() + `if (${blockCheck}) ${restName}.pop();`);
     }
 
     for (let index = 0; index < bodyNode.body.length; index += 1) {
       const statement = bodyNode.body[index];
       const isTail = index === bodyNode.body.length - 1;
-      const stmt = this.emitStatement(statement, { ...context, isTail });
+      const stmtContext = { ...context, isTail };
+      delete stmtContext.blockFromRest;
+      delete stmtContext.optionalParams;
+      const stmt = this.emitStatement(statement, stmtContext);
       if (stmt) lines.push(stmt);
     }
 
@@ -819,8 +1460,13 @@ class Emitter {
   emitBlockFunction(block, context = {}, options = {}) {
     const params = this.resolveBlockParameters(block);
     const scope = this.scopeInfo.get(block);
+    const baseContext = { ...context };
+    delete baseContext.blockFromRest;
+    delete baseContext.optionalParams;
     const fnContext = {
-      ...context,
+      ...baseContext,
+      scopeNode: block,
+      scopeStack: [block, ...(baseContext.scopeStack || [])],
       inFunction: true,
       allowImplicitReturn: options.allowImplicitReturn !== undefined ? options.allowImplicitReturn : true
     };
@@ -833,12 +1479,12 @@ class Emitter {
   }
 
   resolveBlockParameters(block) {
+    const scope = this.scopeInfo.get(block);
     if (block.params && block.params.length) {
-      return block.params.map(param => param.name);
+      return block.params.map(param => this.getRenamedName(scope, param.name));
     }
     const inferred = this.inferImplicitParams(block.body);
-    if (this.scopeInfo.has(block)) {
-      const scope = this.scopeInfo.get(block);
+    if (scope) {
       inferred.forEach(name => scope.declared.add(name));
     }
     return inferred;
@@ -892,6 +1538,22 @@ class Emitter {
       code += '\n' + trailing.map(line => `${indent}${line}`).join('\n');
     }
     return code;
+  }
+
+  emitModuleDeclaration(node, context = {}) {
+    const indent = this.indent();
+    const lines = [`${indent}const ${node.id.name} = {};`];
+    const moduleContext = { ...context, inModule: true, currentModuleName: node.id.name };
+    for (const statement of node.body.body) {
+      const stmt = this.emitStatement(statement, moduleContext);
+      if (stmt) lines.push(stmt);
+    }
+    return lines.join('\n');
+  }
+
+  emitUsingStatement(node) {
+    const indent = this.indent();
+    return `${indent}// using ${node.id.name}`;
   }
 
   emitClassBody(bodyNode, context) {
@@ -966,12 +1628,52 @@ class Emitter {
   emitCaseStatement(node, context = {}) {
     if (!node.clauses.length) return '';
     const indent = this.indent();
-    const testCode = node.test ? this.emitExpression(node.test, context) : null;
+    const testExpression = node.test ? this.emitExpression(node.test, context) : null;
     const lines = [];
 
+    const hasPatternClause = node.clauses.some(clause => clause.type === 'PatternClause');
+    let valueReference = testExpression;
+
+    if (hasPatternClause && testExpression) {
+      const caseVar = this.generateUniqueId('__case');
+      lines.push(`${indent}const ${caseVar} = ${testExpression};`);
+      valueReference = caseVar;
+    }
+
+    const patternMatchVars = new Map();
+    for (const clause of node.clauses) {
+      if (clause.type === 'PatternClause') {
+        patternMatchVars.set(clause, this.generateUniqueId('__pattern'));
+      }
+    }
+
+    if (patternMatchVars.size) {
+      for (const matchVar of patternMatchVars.values()) {
+        lines.push(`${indent}let ${matchVar};`);
+      }
+    }
+
     node.clauses.forEach((clause, index) => {
-      const condition = this.emitCaseCondition(testCode, clause, context);
-      const block = this.emitBlockStatement(clause.body, context);
+      let condition;
+      let block;
+
+      if (clause.type === 'PatternClause') {
+        this.requireRuntime('hashPattern');
+        const matchVar = patternMatchVars.get(clause);
+        const descriptors = this.buildHashPatternDescriptors(clause.pattern, context);
+        const descriptorCode = `[${descriptors.map(desc => `{ binding: ${this.quote(desc.binding)}, keys: [${desc.keys.map(key => this.quote(key)).join(', ')}] }`).join(', ')}]`;
+        const target = valueReference || 'undefined';
+        condition = `(${matchVar} = __rubyMatchHashPattern(${target}, ${descriptorCode}))`;
+
+        const blockString = this.emitBlockStatement(clause.body, context);
+        const innerIndent = indent + ' '.repeat(this.indentSize);
+        const bindingLines = descriptors.map(desc => `${innerIndent}const ${desc.binding} = ${matchVar}[${this.quote(desc.binding)}];`);
+        block = this.prependBlockLines(blockString, bindingLines);
+      } else {
+        condition = this.emitCaseCondition(valueReference, clause, context);
+        block = this.emitBlockStatement(clause.body, context);
+      }
+
       if (index === 0) {
         lines.push(`${indent}if (${condition}) ${block}`);
       } else {
@@ -986,13 +1688,59 @@ class Emitter {
     return lines.join('\n');
   }
 
-  emitCaseCondition(testCode, clause, context) {
+  emitCaseCondition(valueReference, clause, context) {
     const expressions = clause.tests.map(test => this.emitExpression(test, context));
-    if (testCode) {
-      return expressions.map(expr => `${testCode} === ${expr}`).join(' || ');
+    if (valueReference) {
+      return expressions.map(expr => `${valueReference} === ${expr}`).join(' || ');
     }
     if (expressions.length === 0) return 'true';
     return expressions.join(' || ');
+  }
+
+  buildHashPatternDescriptors(pattern, context = {}) {
+    if (!pattern || pattern.type !== 'HashPattern') return [];
+    return pattern.entries.map(entry => ({
+      binding: this.resolveIdentifierName(entry.binding.name, context),
+      keys: this.resolvePatternKeys(entry.key)
+    }));
+  }
+
+  resolvePatternKeys(keyNode) {
+    if (!keyNode) return [''];
+    switch (keyNode.type) {
+      case 'SymbolLiteral':
+        return [keyNode.name];
+      case 'Identifier':
+        return [keyNode.name];
+      case 'StringLiteral':
+        return [keyNode.value];
+      default:
+        return [this.emitExpression(keyNode)];
+    }
+  }
+
+  prependBlockLines(block, lines) {
+    if (!lines.length) return block;
+    const parts = block.split('\n');
+    parts.splice(1, 0, ...lines);
+    return parts.join('\n');
+  }
+
+  collectPattern(pattern, scope) {
+    if (!pattern || typeof pattern !== 'object') return;
+    switch (pattern.type) {
+      case 'HashPattern':
+        for (const entry of pattern.entries) {
+          if (entry.binding && entry.binding.name) {
+            scope.declared.add(entry.binding.name);
+            this.registerReservedName(scope, entry.binding.name);
+          }
+          if (entry.value) this.collectNode(entry.value, scope);
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   splitInterpolatedString(value) {
@@ -1067,12 +1815,63 @@ class Emitter {
     return op;
   }
 
+  generateUniqueId(prefix = '__temp') {
+    this.uniqueIdCounter += 1;
+    return `${prefix}${this.uniqueIdCounter}`;
+  }
+
   quote(value) {
     const escaped = value
       .replace(/\\/g, '\\\\')
       .replace(/\n/g, '\\n')
       .replace(/"/g, '\\"');
     return `"${escaped}"`;
+  }
+
+  isReservedIdentifier(name) {
+    return this.reservedWords.has(name);
+  }
+
+  isValidMethodName(name) {
+    if (!name) return false;
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) return false;
+    return !this.isReservedIdentifier(name);
+  }
+
+  registerReservedName(scope, name) {
+    if (!scope || !name || !this.isReservedIdentifier(name)) return;
+    if (!scope.renamed) scope.renamed = new Map();
+    if (scope.renamed.has(name)) return;
+    let suffix = '_';
+    let candidate = `${name}${suffix}`;
+    const taken = new Set(scope.renamed ? [...scope.renamed.values()] : []);
+    while (this.isReservedIdentifier(candidate) || taken.has(candidate)) {
+      suffix += '_';
+      candidate = `${name}${suffix}`;
+    }
+    scope.renamed.set(name, candidate);
+  }
+
+  getRenamedName(scope, name) {
+    if (!scope || !name) return name;
+    if (scope.renamed && scope.renamed.has(name)) {
+      return scope.renamed.get(name);
+    }
+    return name;
+  }
+
+  resolveIdentifierName(name, context = {}) {
+    if (!name) return name;
+    const stack = context.scopeStack && context.scopeStack.length
+      ? context.scopeStack
+      : (context.scopeNode ? [context.scopeNode] : []);
+    for (const scopeNode of stack) {
+      const scope = this.scopeInfo.get(scopeNode);
+      if (scope && scope.renamed && scope.renamed.has(name)) {
+        return scope.renamed.get(name);
+      }
+    }
+    return name;
   }
 
   formatObjectKey(keyNode) {
@@ -1106,8 +1905,13 @@ class Emitter {
     if (this.scopeInfo.has(node)) return;
     const scope = this.createScope();
     for (const param of node.params) {
-      if (param && param.name) {
+      if (!param) continue;
+      if (param.name) {
         scope.declared.add(param.name);
+        this.registerReservedName(scope, param.name);
+      }
+      if (param.type === 'OptionalParameter' && param.default) {
+        this.collectNode(param.default, scope);
       }
     }
     if (node.usesYield && !node.params.some(param => param.type === 'BlockParameter')) {
@@ -1118,7 +1922,7 @@ class Emitter {
   }
 
   createScope() {
-    return { declared: new Set(), hoisted: new Set() };
+    return { declared: new Set(), hoisted: new Set(), renamed: new Map() };
   }
 
   collectNode(node, scope) {
@@ -1187,7 +1991,11 @@ class Emitter {
       case 'CaseStatement':
         if (node.test) this.collectNode(node.test, scope);
         for (const clause of node.clauses) {
-          for (const test of clause.tests) this.collectNode(test, scope);
+          if (clause.type === 'PatternClause') {
+            this.collectPattern(clause.pattern, scope);
+          } else if (clause.tests) {
+            for (const test of clause.tests) this.collectNode(test, scope);
+          }
           this.collectNode(clause.body, scope);
         }
         if (node.alternate) this.collectNode(node.alternate, scope);
@@ -1220,6 +2028,7 @@ class Emitter {
     const scope = this.createScope();
     for (const param of block.params) {
       scope.declared.add(param.name);
+      this.registerReservedName(scope, param.name);
     }
     if (!block.params.length) {
       const inferred = this.inferImplicitParams(block.body);
@@ -1234,6 +2043,7 @@ class Emitter {
     const scope = this.createScope();
     for (const param of node.params) {
       scope.declared.add(param.name);
+      this.registerReservedName(scope, param.name);
     }
     if (!node.params.length) {
       const inferred = this.inferImplicitParams(node.body);
@@ -1250,6 +2060,7 @@ class Emitter {
         scope.declared.add(target.name);
         scope.hoisted.add(target.name);
       }
+      this.registerReservedName(scope, target.name);
     } else if (target.type === 'MemberExpression') {
       this.collectNode(target.object, scope);
       if (target.computed) this.collectNode(target.property, scope);

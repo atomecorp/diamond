@@ -29,6 +29,21 @@ const __rubySymbolProc = (name) => {
   }
 };
 
+const __rubySend = (receiver, methodName, args = [], block) => {
+  if (receiver == null) return undefined;
+  const fn = receiver[methodName];
+  if (typeof fn === "function") {
+    const callArgs = block === undefined ? args : [...args, block];
+    return fn.apply(receiver, callArgs);
+  }
+  const missing = receiver.method_missing;
+  if (typeof missing === "function") {
+    const missingArgs = block === undefined ? [methodName, ...args] : [methodName, ...args, block];
+    return missing.apply(receiver, missingArgs);
+  }
+  throw new Error(`NoMethodError: undefined method ${methodName}`);
+};
+
 class TextProcessor {
   constructor(text) {
     this.__text = text;
@@ -48,18 +63,18 @@ class TextProcessor {
   }
 }
 to_capitalize = (str) => {
-  return __rubySplit(str).map(__rubySymbolProc("capitalize")).join(" ");
+  return __rubySend(__rubySend(__rubySplit(str), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined);
 };
 remove_short = function(str) {
-  return __rubySplit(str).filter((_1) => {
+  return __rubySend(__rubySplit(str).filter((_1) => {
     return _1.length > 3;
-  }).join(" ");
+  }), "join", [" "], undefined);
 };
 reverse_text = (str) => {
   return __rubyReverse(str);
 };
 text = "bonjour à tous les amis du ruby";
-processed = new TextProcessor(text).transform((_1) => {
+processed = __rubySend(__rubySend(__rubySend(__rubySend(__rubySend(new TextProcessor(text), "transform", [], (_1) => {
   return __rubyStrip(_1);
-}).apply(to_capitalize).apply(remove_short).apply(reverse_text).result();
+}), "apply", [to_capitalize], undefined), "apply", [remove_short], undefined), "apply", [reverse_text], undefined), "result", [], undefined);
 console.log(processed);

@@ -7,7 +7,7 @@ class Tokenizer {
     this.tokens = [];
     this.keywords = new Set([
       'def', 'end', 'class', 'module', 'if', 'elsif', 'else', 'unless', 'while', 'until', 'loop', 'do', 'then',
-      'case', 'when', 'true', 'false', 'nil', 'return', 'self', 'break', 'yield'
+      'case', 'when', 'in', 'true', 'false', 'nil', 'return', 'self', 'break', 'yield', 'using', 'super'
     ]);
     this.multiChar = [
       '===', '==', '!=', '<=', '>=', '=>', '..', '...', '::', '&&', '||', '+=', '-=', '*=', '/=', '%=',
@@ -41,6 +41,11 @@ class Tokenizer {
 
       if (char === '\"' || char === '\'') {
         this.tokens.push(this.consumeString());
+        continue;
+      }
+
+      if (char === '/' && this.isRegexStart()) {
+        this.tokens.push(this.consumeRegex());
         continue;
       }
 
@@ -80,6 +85,68 @@ class Tokenizer {
 
     this.tokens.push(this.createToken('EOF', null));
     return this.tokens;
+  }
+
+  isRegexStart() {
+    const prev = this.tokens[this.tokens.length - 1];
+    if (!prev) return true;
+    if (prev.type === 'NEWLINE') return true;
+    if (prev.type === 'OPERATOR') {
+      const disallow = new Set([')', ']', '}', '?']);
+      return !disallow.has(prev.value);
+    }
+    if (prev.type === 'KEYWORD') {
+      return ['if', 'elsif', 'unless', 'when', 'in', 'while', 'until', 'return', 'do', 'then'].includes(prev.value);
+    }
+    return false;
+  }
+
+  consumeRegex() {
+    const startLine = this.line;
+    const startColumn = this.column;
+    this.advance();
+    let pattern = '';
+    let escaped = false;
+
+    while (!this.isEOF()) {
+      const char = this.peek();
+      if (!escaped) {
+        if (char === '\\') {
+          escaped = true;
+          pattern += char;
+          this.advance();
+          continue;
+        }
+        if (char === '/') {
+          break;
+        }
+        if (char === '\n') {
+          throw new SyntaxError(`Unterminated regex literal at ${startLine}:${startColumn}`);
+        }
+        pattern += char;
+        this.advance();
+        continue;
+      }
+      pattern += char;
+      escaped = false;
+      this.advance();
+    }
+
+    if (this.peek() !== '/') {
+      throw new SyntaxError(`Unterminated regex literal at ${startLine}:${startColumn}`);
+    }
+
+    this.advance();
+
+    let flags = '';
+    while (!this.isEOF()) {
+      const char = this.peek();
+      if (!/[a-z]/i.test(char)) break;
+      flags += char;
+      this.advance();
+    }
+
+    return this.createToken('REGEX', { pattern, flags }, startLine, startColumn);
   }
 
   isEOF() {
