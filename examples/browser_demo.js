@@ -293,7 +293,7 @@ const __rubyMatchHashPattern = (value, descriptors) => {
   return bindings;
 };
 
-__rubySend(this, "p", [__rubySend(__rubySend(__rubySplit("hello"), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined)], undefined);
+console.log(__rubySend(__rubySend(__rubySplit("hello"), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined));
 console.log("----- 16th check -----");
 class FileSystem {
   constructor(name) {

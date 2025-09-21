@@ -1085,6 +1085,11 @@ class Emitter {
       return args.length ? `__rubyPrint(${args})` : '__rubyPrint()';
     }
 
+    if (calleeName === 'p') {
+      const args = node.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+      return args.length ? `console.log(${args})` : 'console.log()';
+    }
+
     if (calleeName === 'gets') {
       this.requireRuntime('gets');
       const args = node.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
