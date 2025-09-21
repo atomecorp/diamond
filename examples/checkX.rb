@@ -1,3 +1,6 @@
+# ---  17th check---
+
+p 'hello'.split.map(&:capitalize).join(' ')
 # ---  16th check---
 
  puts "----- 16th check -----"
