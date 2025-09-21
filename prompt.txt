@@ -1,0 +1,88 @@
+We’re currently extending your custom Ruby → JS transpiler to cover more and more “Ruby-like” constructs, while still producing clean JavaScript without a heavy runtime. Concretely:
+
+Tokenizer / Parser:
+	•	Added support for heredocs (<<~LABEL), lambdas (->), blocks ({ … }), postfix operators (expr if/unless cond), yield, block_given?, and the &:method sugar.
+	•	Support for singleton method definitions (def self.foo), *rest and &block parameters, and strings with interpolation.
+
+Emitter:
+	•	Generates readable ES classes by mapping @ivars to hidden properties (__name).
+	•	Recognizes define_method, instance_variable_get/set, block_given?, Proc.new, Time.now.strftime, _1, &:capitalize, etc., and translates them into JavaScript helpers (__rubyIvarName, __rubySymbolProc, __rubyStrftime, __rubyStrip, __rubyCapitalize, etc.).
+	•	Transforms Ruby blocks/lambdas into JS functions with the correct implicit parameters, handles yield as a conditional call to the passed block, and converts each/select into forEach/filter.
+	•	“Command calls” (obj.method arg without parentheses) are converted back into explicit calls, and multiline chaining is supported.
+
+Lightweight runtime:
+	•	Only when necessary (strip, split, reverse, capitalize, symbol proc, strftime, etc.), automatically injected at the top of the generated JS.
+
+Examples:
+	•	full.rb once transpiled produces pure vanilla JS that preserves Ruby behavior (dynamic ivar access, callbacks, etc.).
+	•	Produces a template string with a formatted date via our __rubyStrftime helper.
+	•	The parser already accepts lambdas, _1, blocks, Proc.new, and JS emission relies on helpers for strip, split, reverse, capitalize, etc.
+
+⸻
+
+⚡ The goal remains to handle every essential Ruby feature in your examples by adding support at the parser + code generation level + small JS helper, so the final code stays lightweight and easy to include in an HTML page.
+
+👉 Next step: make sure our transpiler can transpile all these basic Ruby helpers: 
+
+Ruby Helpers Cheat Sheet
+
+⸻
+
+🔢 Numbers & Iterations
+
+Code Result
+5.times { ... } repeats the block 5 times
+1.upto(5) { ... } counts from 1 to 5 (inclusive)
+5.downto(1) { ... } counts from 5 down to 1
+(1..5).each { ... } iterates over a range
+(1..10).step(2) { ... } increments by 2 each time
+
+⸻
+
+📝 Strings
+
+Code Result
+"Hello".upcase "HELLO"
+"Hello".downcase "hello"
+"Hello".capitalize "Hello"
+"Hello".swapcase "hELLO"
+"Hello".reverse "olleH"
+"Hello".gsub("H", "J") "Jello" (replace)
+"Hello".include?("lo") true
+"   hi   ".strip "hi"
+"hi".ljust(5, ".") "hi..."
+"hi".rjust(5, ".") "...hi"
+"abc".chars ["a", "b", "c"]
+
+Destructive versions with ! exist (upcase!, downcase!, strip!, …) which modify the string in place.
+
+⸻
+
+📦 Arrays
+
+Code Result
+`[1,2,3].each { x
+`[1,2,3].map { x
+`[1,2,3].select { x
+`[1,2,3].reject { x
+[1,2,3].include?(2) true
+[1,2,3].first 1
+[1,2,3].last 3
+[1,2,3].push(4) / << 4 [1,2,3,4]
+[1,2,3,4].pop removes and returns 4
+[1,2,3].join("-") "1-2-3"
+"1,2,3".split(",") ["1","2","3"]
+[1,2,3].shuffle random order
+[1,2,3].uniq removes duplicates
+[1,2,3].sample picks a random element
+
+⸻
+
+🗂️ Hashes
+
+Code Result
+{a: 1, b: 2}.keys [:a, :b]
+{a: 1, b: 2}.values [1, 2]
+{a: 1, b: 2}[:a] 1
+{a: 1, b: 2}.merge({c: 3}) {a:1, b:2, c:3}
+`{a: 1, b: 2}.each { k,v

@@ -4,7 +4,7 @@ puts say
 
 # Output "I *LOVE* RUBY"
 say['love'] = "*love*"
-puts say.upcase!
+puts say.upcase!regarde
 
 # Output "I *love* Ruby"
 # five times
