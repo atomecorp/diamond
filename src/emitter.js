@@ -1135,8 +1135,13 @@ class Emitter {
     const argsWithBlock = blockCode ? [...argList, blockCode] : [...argList];
 
     if (!memberProperty && node.callee.type === 'Identifier') {
-      const handledNames = ['proc', 'instance_eval', 'instance_exec', 'block_given?', 'define_method', 'instance_variable_get', 'instance_variable_set', 'eval', 'puts', 'print', 'gets'];
+      if (calleeName === 'eval') {
+        const callArgs = argsWithBlock.join(', ');
+        return callArgs.length ? `eval(${callArgs})` : 'eval()';
+      }
+      const handledNames = ['proc', 'instance_eval', 'instance_exec', 'block_given?', 'define_method', 'instance_variable_get', 'instance_variable_set', 'puts', 'print', 'gets'];
       if (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name)) {
+        this.requireRuntime('send');
         const implicitReceiver = this.resolveImplicitCallReceiver(context);
         return `__rubySend(${implicitReceiver}, ${this.quote(node.callee.name)}, ${argsArray}, ${blockArg})`;
       }
@@ -2232,6 +2237,9 @@ class Emitter {
         break;
       case 'ClassDeclaration':
         this.collectNode(node.body, scope);
+        break;
+      case 'ModuleDeclaration':
+        if (node.body) this.collectNode(node.body, scope);
         break;
       default:
         break;

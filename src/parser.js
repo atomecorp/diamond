@@ -2,6 +2,7 @@ class Parser {
   constructor(tokens) {
     this.tokens = tokens;
     this.current = 0;
+    this.allowMultiAssign = true;
   }
 
   parse() {
@@ -16,6 +17,7 @@ class Parser {
   }
 
   parseStatement() {
+    this.allowMultiAssign = true;
     if (this.match('KEYWORD', 'def')) return this.parseMethodDefinition();
     if (this.match('KEYWORD', 'class')) return this.parseClassDefinition();
     if (this.match('KEYWORD', 'module')) return this.parseModuleDeclaration();
@@ -352,7 +354,7 @@ class Parser {
 
   parseAssignment() {
     const left = this.parseConditional();
-    if (this.check('OPERATOR', ',') && this.isAssignableNode(left)) {
+    if (this.allowMultiAssign && this.check('OPERATOR', ',') && this.isAssignableNode(left)) {
       const checkpoint = this.current;
       try {
         const targets = [this.ensureAssignable(left)];
@@ -570,13 +572,20 @@ class Parser {
         if (this.match('OPERATOR', '(')) {
           const args = [];
           if (!this.check('OPERATOR', ')')) {
-            while (true) {
+            const parseArgument = () => {
               if (this.isKeywordArgumentStart()) {
                 args.push(this.parseKeywordArgumentGroup());
               } else {
+                const previous = this.allowMultiAssign;
+                this.allowMultiAssign = false;
                 args.push(this.parseExpression());
+                this.allowMultiAssign = previous;
               }
-              if (!this.match('OPERATOR', ',')) break;
+            };
+            parseArgument();
+            while (this.check('OPERATOR', ',')) {
+              this.advance();
+              parseArgument();
             }
           }
           this.consume('OPERATOR', ')', 'Expected closing ) after arguments');
@@ -633,13 +642,21 @@ class Parser {
 
       if (this.canCommandCall(expr)) {
         const args = [];
-        do {
+        const parseArgument = () => {
           if (this.isKeywordArgumentStart()) {
             args.push(this.parseKeywordArgumentGroup());
           } else {
+            const previous = this.allowMultiAssign;
+            this.allowMultiAssign = false;
             args.push(this.parseExpression());
+            this.allowMultiAssign = previous;
           }
-        } while (this.match('OPERATOR', ','));
+        };
+        parseArgument();
+        while (this.check('OPERATOR', ',')) {
+          this.advance();
+          parseArgument();
+        }
         expr = { type: 'CallExpression', callee: expr, arguments: args };
         continue;
       }
@@ -837,12 +854,28 @@ class Parser {
 
     if (this.match('KEYWORD', 'yield')) {
       const args = [];
-      if (!this.isTerminator(this.peek())) {
+      const previous = this.allowMultiAssign;
+      this.allowMultiAssign = false;
+      if (this.match('OPERATOR', '(')) {
+        if (!this.check('OPERATOR', ')')) {
+          const parseArgument = () => {
+            args.push(this.parseExpression());
+          };
+          parseArgument();
+          while (this.check('OPERATOR', ',')) {
+            this.advance();
+            parseArgument();
+          }
+        }
+        this.consume('OPERATOR', ')', 'Expected closing ) after yield arguments');
+      } else if (!this.isTerminator(this.peek())) {
         args.push(this.parseExpression());
-        while (this.match('OPERATOR', ',')) {
+        while (this.check('OPERATOR', ',')) {
+          this.advance();
           args.push(this.parseExpression());
         }
       }
+      this.allowMultiAssign = previous;
       return { type: 'YieldExpression', arguments: args };
     }
 
