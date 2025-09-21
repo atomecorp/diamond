@@ -400,7 +400,7 @@ class Parser {
   }
 
   matchAssignmentOperator() {
-    const operators = ['+=', '-=', '*=', '/=', '%='];
+    const operators = ['+=', '-=', '*=', '/=', '%=', '||=', '&&='];
     for (const op of operators) {
       if (this.match('OPERATOR', op)) return true;
     }
@@ -520,6 +520,34 @@ class Parser {
     return this.parseCall();
   }
 
+  isKeywordArgumentStart() {
+    const current = this.peek();
+    const next = this.tokens[this.current + 1];
+    if (!current || !next) return false;
+    if (current.type !== 'IDENTIFIER') return false;
+    if (next.type !== 'OPERATOR' || next.value !== ':') return false;
+    return true;
+  }
+
+  parseKeywordArgumentGroup() {
+    const properties = [];
+    while (true) {
+      const keyToken = this.consumeIdentifier('Expected keyword argument name');
+      const keyNode = { type: 'Identifier', name: keyToken.value };
+      this.consume('OPERATOR', ':', "Expected ':' after keyword argument name");
+      const value = this.parseExpression();
+      properties.push({ key: keyNode, value });
+      if (!this.check('OPERATOR', ',')) break;
+      const next = this.tokens[this.current + 1];
+      const after = this.tokens[this.current + 2];
+      if (!(next && next.type === 'IDENTIFIER' && after && after.type === 'OPERATOR' && after.value === ':')) {
+        break;
+      }
+      this.advance(); // consume ',' and continue parsing more keyword pairs
+    }
+    return { type: 'HashExpression', properties };
+  }
+
   parseCall() {
     let expr = this.parsePrimary();
 
@@ -542,9 +570,14 @@ class Parser {
         if (this.match('OPERATOR', '(')) {
           const args = [];
           if (!this.check('OPERATOR', ')')) {
-            do {
-              args.push(this.parseExpression());
-            } while (this.match('OPERATOR', ','));
+            while (true) {
+              if (this.isKeywordArgumentStart()) {
+                args.push(this.parseKeywordArgumentGroup());
+              } else {
+                args.push(this.parseExpression());
+              }
+              if (!this.match('OPERATOR', ',')) break;
+            }
           }
           this.consume('OPERATOR', ')', 'Expected closing ) after arguments');
           expr = { type: 'CallExpression', callee: expr, arguments: args };
@@ -600,10 +633,13 @@ class Parser {
 
       if (this.canCommandCall(expr)) {
         const args = [];
-        args.push(this.parseExpression());
-        while (this.match('OPERATOR', ',')) {
-          args.push(this.parseExpression());
-        }
+        do {
+          if (this.isKeywordArgumentStart()) {
+            args.push(this.parseKeywordArgumentGroup());
+          } else {
+            args.push(this.parseExpression());
+          }
+        } while (this.match('OPERATOR', ','));
         expr = { type: 'CallExpression', callee: expr, arguments: args };
         continue;
       }

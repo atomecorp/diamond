@@ -307,6 +307,41 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('instanceEval')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyInstanceEval = (receiver, block) => {');
+      lines.push('  if (typeof block !== "function") return undefined;');
+      const evalLogic = [
+        '  const target = receiver !== undefined ? receiver : undefined;',
+        '  const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(target) : null;',
+        '  try {',
+        '    return block.call(target);',
+        '  } finally {',
+        '    if (typeof restore === "function") restore();',
+        '  }'
+      ];
+      lines.push(...evalLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('instanceExec')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyInstanceExec = (receiver, args, block) => {');
+      lines.push('  if (typeof block !== "function") return undefined;');
+      const execLogic = [
+        '  const target = receiver !== undefined ? receiver : undefined;',
+        '  const argList = Array.isArray(args) ? args : [];',
+        '  const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(target) : null;',
+        '  try {',
+        '    return block.apply(target, argList);',
+        '  } finally {',
+        '    if (typeof restore === "function") restore();',
+        '  }'
+      ];
+      lines.push(...execLogic);
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('multiAssign')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyMultiAssign = (value, count) => {');
@@ -356,6 +391,22 @@ class Emitter {
       lines.push('    "%d": String(date.getDate()).padStart(2, "0")');
       lines.push('  };');
       lines.push('  return String(format ?? "").replace(/%[Ymd]/g, (match) => replacements[match] ?? match);');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('implicitCall')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyImplicitCall = (receiver, name) => {');
+      lines.push('  let target = receiver;');
+      lines.push('  if (target == null && typeof globalThis !== "undefined") {');
+      lines.push('    target = globalThis;');
+      lines.push('  }');
+      lines.push('  if (target == null) return undefined;');
+      lines.push('  const member = target[name];');
+      lines.push('  if (typeof member === "function") {');
+      lines.push('    return member.call(target);');
+      lines.push('  }');
+      lines.push('  return member;');
       lines.push('};');
     }
 
@@ -441,7 +492,7 @@ class Emitter {
       return this.emitRefineCall(expressionNode, context);
     }
 
-    const normalized = this.normalizeExpressionForStatement(expressionNode);
+    const normalized = this.normalizeExpressionForStatement(expressionNode, context);
     const expressionCode = this.emitExpression(normalized, { ...context, statement: true });
     if (expressionCode === '') return null;
 
@@ -452,11 +503,17 @@ class Emitter {
     return `${indent}${expressionCode};`;
   }
 
-  normalizeExpressionForStatement(expr) {
+  normalizeExpressionForStatement(expr, context = {}) {
     if (!expr) return expr;
     if (expr.type === 'CallExpression') return expr;
     if (expr.type === 'AssignmentExpression') return expr;
-    if (expr.type === 'Identifier' || expr.type === 'MemberExpression' || expr.type === 'OptionalMemberExpression') {
+    if (expr.type === 'Identifier') {
+      if (this.isIdentifierDeclared(expr.name, context)) {
+        return expr;
+      }
+      return { type: 'CallExpression', callee: expr, arguments: [] };
+    }
+    if (expr.type === 'MemberExpression' || expr.type === 'OptionalMemberExpression') {
       return { type: 'CallExpression', callee: expr, arguments: [] };
     }
     return expr;
@@ -470,8 +527,30 @@ class Emitter {
 
   emitAttrMacro(expr, context) {
     const indent = this.indent();
-    const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
-    return `${indent}// ${expr.callee.name}(${args})`;
+    const attributeNames = expr.arguments
+      .map(arg => this.extractSymbolName(arg) ?? (arg.type === 'StringLiteral' ? arg.value : null))
+      .filter(Boolean);
+
+    if (!attributeNames.length) {
+      const args = expr.arguments.map(arg => this.emitExpression(arg, context)).join(', ');
+      return `${indent}// ${expr.callee.name}(${args})`;
+    }
+
+    const target = context.currentClassName
+      ? `${context.currentClassName}.prototype`
+      : 'this';
+
+    const lines = [];
+    for (const name of attributeNames) {
+      const ivar = this.instanceVariableKey(name);
+      if (expr.callee.name !== 'attr_writer') {
+        lines.push(`${target}[${this.quote(name)}] = function() { return this.${ivar}; };`);
+      }
+      if (expr.callee.name !== 'attr_reader') {
+        lines.push(`${target}[${this.quote(`${name}=`)}] = function(value) { this.${ivar} = value; return value; };`);
+      }
+    }
+    return lines.join('\n');
   }
 
   isRequireCall(expr) {
@@ -679,8 +758,19 @@ class Emitter {
 
   emitExpression(node, context = {}) {
     switch (node.type) {
-      case 'Identifier':
-        return this.resolveIdentifierName(node.name, context);
+      case 'Identifier': {
+        const name = node.name;
+        const declared = this.isIdentifierDeclared(name, context);
+        if (!declared) {
+          if (/^[A-Z]/.test(name)) {
+            return name;
+          }
+          this.requireRuntime('implicitCall');
+          const receiverExpr = context.implicitReceiverExpression ?? this.resolveImplicitCallReceiver(context);
+          return `__rubyImplicitCall(${receiverExpr}, ${this.quote(name)})`;
+        }
+        return this.resolveIdentifierName(name, context);
+      }
       case 'InstanceVariable':
         return this.instanceVariableReference(node.name);
       case 'ClassVariable':
@@ -784,6 +874,46 @@ class Emitter {
     const calleeName = this.extractCalleeName(node.callee);
     const receiverCode = this.extractCalleeObjectCode(node.callee, context);
 
+    const argList = [];
+    let blockPassExpression = null;
+    for (const arg of node.arguments) {
+      if (arg && arg.type === 'BlockPassExpression') {
+        blockPassExpression = this.emitBlockPassExpression(arg, context);
+        continue;
+      }
+      argList.push(this.emitArgumentExpression(arg, context));
+    }
+
+    const inlineBlockNode = node.block || null;
+    const inlineBlockCode = inlineBlockNode ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true }) : null;
+    let blockCode = inlineBlockCode || blockPassExpression;
+
+    if (calleeName === 'proc') {
+      if (blockCode) {
+        return blockCode;
+      }
+      if (argList.length) {
+        return `${calleeName}(${argList.join(', ')})`;
+      }
+      return `${calleeName}()`;
+    }
+
+    if (calleeName === 'instance_eval' && node.callee.type === 'Identifier' && blockCode && !argList.length) {
+      this.requireRuntime('instanceEval');
+      const receiverExpr = this.resolveImplicitCallReceiver(context);
+      const evalBlock = inlineBlockNode
+        ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true })
+        : blockCode;
+      return `__rubyInstanceEval(${receiverExpr}, ${evalBlock})`;
+    }
+
+    if (calleeName === 'instance_exec' && node.callee.type === 'Identifier' && blockCode) {
+      this.requireRuntime('instanceExec');
+      const execArgs = argList.length ? `[${argList.join(', ')}]` : '[]';
+      const receiverExpr = this.resolveImplicitCallReceiver(context);
+      return `__rubyInstanceExec(${receiverExpr}, ${execArgs}, ${blockCode})`;
+    }
+
     if (
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
@@ -793,7 +923,7 @@ class Emitter {
       node.callee.property.name === 'new'
     ) {
       if (node.block) {
-        return this.emitBlockFunction(node.block, context, { asFunction: true });
+        return this.emitBlockFunction(node.block, context, { forceImplicitIdentifiers: true });
       }
     }
 
@@ -901,9 +1031,16 @@ class Emitter {
         return `${memberObjectCode}.length`;
       }
 
-      if (memberProperty === 'select' && node.block) {
-        const blockFn = this.emitBlockFunction(node.block, context);
-        return `${memberObjectCode}.filter(${blockFn})`;
+      if (memberProperty === 'is_a?' && node.arguments.length === 1) {
+        const argNode = node.arguments[0];
+        if (argNode.type === 'Identifier' && argNode.name === 'Proc') {
+          const objectRef = memberObjectCode ?? this.emitExpression(node.callee.object, context);
+          return `typeof ${objectRef} === 'function'`;
+        }
+      }
+
+      if (memberProperty === 'select' && blockCode) {
+        return `${memberObjectCode}.filter(${blockCode})`;
       }
 
       if (memberProperty === 'class' && node.arguments.length === 0) {
@@ -934,6 +1071,20 @@ class Emitter {
         this.requireRuntime('match');
         const pattern = node.arguments[0] ? this.emitExpression(node.arguments[0], context) : 'undefined';
         return `__rubyMatch(${memberObjectCode}, ${pattern})`;
+      }
+
+      if (memberProperty === 'instance_eval' && blockCode && !argList.length) {
+        this.requireRuntime('instanceEval');
+        const evalBlock = inlineBlockNode
+          ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true })
+          : blockCode;
+        return `__rubyInstanceEval(${memberObjectCode}, ${evalBlock})`;
+      }
+
+      if (memberProperty === 'instance_exec' && blockCode) {
+        this.requireRuntime('instanceExec');
+        const execArgs = argList.length ? `[${argList.join(', ')}]` : '[]';
+        return `__rubyInstanceExec(${memberObjectCode}, ${execArgs}, ${blockCode})`;
       }
     }
 
@@ -979,14 +1130,17 @@ class Emitter {
       calleeCode = this.emitExpression(node.callee, context);
     }
 
-    const argList = node.arguments.map(arg => this.emitArgumentExpression(arg, context));
-    let blockCode = null;
-    if (node.block) {
-      blockCode = this.emitBlockFunction(node.block, context);
-    }
     const argsArray = argList.length ? `[${argList.join(', ')}]` : '[]';
     const blockArg = blockCode ? blockCode : 'undefined';
     const argsWithBlock = blockCode ? [...argList, blockCode] : [...argList];
+
+    if (!memberProperty && node.callee.type === 'Identifier') {
+      const handledNames = ['proc', 'instance_eval', 'instance_exec', 'block_given?', 'define_method', 'instance_variable_get', 'instance_variable_set', 'eval', 'puts', 'print', 'gets'];
+      if (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name)) {
+        const implicitReceiver = this.resolveImplicitCallReceiver(context);
+        return `__rubySend(${implicitReceiver}, ${this.quote(node.callee.name)}, ${argsArray}, ${blockArg})`;
+      }
+    }
 
     if (memberProperty === 'call' && node.callee.type !== 'OptionalMemberExpression') {
       const args = argList.join(', ');
@@ -994,7 +1148,7 @@ class Emitter {
     }
 
     if (
-      node.block &&
+      blockCode &&
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
       node.callee.property.type === 'Identifier' &&
@@ -1005,7 +1159,7 @@ class Emitter {
     }
 
     if (
-      node.block &&
+      blockCode &&
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
       node.callee.property.type === 'Identifier' &&
@@ -1463,19 +1617,41 @@ class Emitter {
     const baseContext = { ...context };
     delete baseContext.blockFromRest;
     delete baseContext.optionalParams;
+    const forceImplicit = options.forceImplicitIdentifiers ?? baseContext.forceImplicitIdentifiers ?? false;
     const fnContext = {
       ...baseContext,
       scopeNode: block,
       scopeStack: [block, ...(baseContext.scopeStack || [])],
       inFunction: true,
-      allowImplicitReturn: options.allowImplicitReturn !== undefined ? options.allowImplicitReturn : true
+      allowImplicitReturn: options.allowImplicitReturn !== undefined ? options.allowImplicitReturn : true,
+      forceImplicitIdentifiers: forceImplicit
     };
     const body = this.emitFunctionBody(block.body, fnContext, scope);
+    const paramList = params.join(', ');
+    const innerFunction = `function(${paramList}) ${body}`;
     if (options.asFunction) {
-      return `function(${params.join(', ')}) ${body}`;
+      return innerFunction;
     }
-    const paramList = params.length ? `(${params.join(', ')}) => ` : '() => ';
-    return `${paramList}${body}`;
+    const selfVar = this.generateUniqueId('__self');
+    const blockVar = this.generateUniqueId('__block');
+    const argsVar = this.generateUniqueId('__args');
+    const prevVar = this.generateUniqueId('__prev');
+    const lines = [];
+    lines.push('(() => {');
+    lines.push(`  let ${selfVar} = this;`);
+    lines.push(`  const ${blockVar} = function(...${argsVar}) {`);
+    lines.push(`    return (${innerFunction}).apply(${selfVar}, ${argsVar});`);
+    lines.push('  };');
+    lines.push(`  ${blockVar}.__rubyBind = (value) => {`);
+    lines.push(`    const ${prevVar} = ${selfVar};`);
+    lines.push(`    ${selfVar} = value;`);
+    lines.push('    return () => {');
+    lines.push(`      ${selfVar} = ${prevVar};`);
+    lines.push('    };');
+    lines.push('  };');
+    lines.push(`  return ${blockVar};`);
+    lines.push('})()');
+    return lines.join('\n');
   }
 
   resolveBlockParameters(block) {
@@ -1860,6 +2036,37 @@ class Emitter {
     return name;
   }
 
+  isIdentifierDeclared(name, context = {}) {
+    if (!name) return false;
+    const stack = [];
+    if (context.scopeStack && context.scopeStack.length) {
+      stack.push(...context.scopeStack);
+    }
+    if (context.scopeNode && !stack.includes(context.scopeNode)) {
+      stack.push(context.scopeNode);
+    }
+    for (const scopeNode of stack) {
+      const scope = this.scopeInfo.get(scopeNode);
+      if (scope && scope.declared && scope.declared.has(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  resolveImplicitCallReceiver(context = {}) {
+    if (context && typeof context.implicitReceiver === 'string') {
+      return context.implicitReceiver;
+    }
+    if (context.methodType === 'static' && context.currentClassName) {
+      return context.currentClassName;
+    }
+    if (context.classLevel && context.currentClassName) {
+      return context.currentClassName;
+    }
+    return 'this';
+  }
+
   resolveIdentifierName(name, context = {}) {
     if (!name) return name;
     const stack = context.scopeStack && context.scopeStack.length
@@ -1939,6 +2146,14 @@ class Emitter {
         break;
       case 'AssignmentExpression':
         this.recordAssignment(node.left, scope);
+        this.collectNode(node.right, scope);
+        break;
+      case 'MultiAssignmentExpression':
+        if (Array.isArray(node.targets)) {
+          for (const target of node.targets) {
+            this.recordAssignment(target, scope);
+          }
+        }
         this.collectNode(node.right, scope);
         break;
       case 'BinaryExpression':
