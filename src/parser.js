@@ -121,12 +121,31 @@ class Parser {
     }
 
     if (!this.check('OPERATOR', ')')) {
-      do {
-        if (this.match('OPERATOR', '*')) {
-          const rest = this.consumeIdentifier('Expected rest parameter name');
-          params.push({ type: 'RestParameter', name: rest.value });
+      while (true) {
+        if (this.match('OPERATOR', '...')) {
+          params.push({ type: 'ForwardingParameter' });
+          break;
+        }
+
+        if (this.match('OPERATOR', '**')) {
+          const kwRest = this.consumeIdentifier('Expected keyword rest parameter name');
+          params.push({ type: 'KeywordRestParameter', name: kwRest.value });
+          if (!this.match('OPERATOR', ',')) break;
           continue;
         }
+
+        if (this.match('OPERATOR', '*')) {
+          if (this.match('OPERATOR', '*')) {
+            const kwRest = this.consumeIdentifier('Expected keyword rest parameter name');
+            params.push({ type: 'KeywordRestParameter', name: kwRest.value });
+          } else {
+            const rest = this.consumeIdentifier('Expected rest parameter name');
+            params.push({ type: 'RestParameter', name: rest.value });
+          }
+          if (!this.match('OPERATOR', ',')) break;
+          continue;
+        }
+
         if (this.match('OPERATOR', '&')) {
           if (this.check('IDENTIFIER') || this.check('KEYWORD')) {
             const block = this.advance();
@@ -134,9 +153,12 @@ class Parser {
           } else {
             params.push({ type: 'BlockParameter', name: '__block' });
           }
+          if (!this.match('OPERATOR', ',')) break;
           continue;
         }
+
         const paramToken = this.consumeIdentifier('Expected parameter name');
+
         if (this.match('OPERATOR', '=')) {
           const defaultValue = this.parseExpression();
           params.push({
@@ -144,10 +166,30 @@ class Parser {
             name: paramToken.value,
             default: defaultValue
           });
+          if (!this.match('OPERATOR', ',')) break;
           continue;
         }
+
+        if (this.check('OPERATOR', ':')) {
+          this.advance();
+          this.skipNewlines();
+          if (this.check('OPERATOR', ',') || this.check('OPERATOR', ')')) {
+            params.push({ type: 'KeywordParameter', name: paramToken.value });
+          } else {
+            const defaultValue = this.parseExpression();
+            params.push({
+              type: 'KeywordOptionalParameter',
+              name: paramToken.value,
+              default: defaultValue
+            });
+          }
+          if (!this.match('OPERATOR', ',')) break;
+          continue;
+        }
+
         params.push({ type: 'Identifier', name: paramToken.value });
-      } while (this.match('OPERATOR', ','));
+        if (!this.match('OPERATOR', ',')) break;
+      }
     }
 
     this.consume('OPERATOR', ')', 'Expected closing ) after parameters');
@@ -537,6 +579,7 @@ class Parser {
       const keyToken = this.consumeIdentifier('Expected keyword argument name');
       const keyNode = { type: 'Identifier', name: keyToken.value };
       this.consume('OPERATOR', ':', "Expected ':' after keyword argument name");
+      this.skipNewlines();
       const value = this.parseExpression();
       properties.push({ key: keyNode, value });
       if (!this.check('OPERATOR', ',')) break;
@@ -547,7 +590,7 @@ class Parser {
       }
       this.advance(); // consume ',' and continue parsing more keyword pairs
     }
-    return { type: 'HashExpression', properties };
+    return { type: 'HashExpression', properties, keyword: true };
   }
 
   parseCall() {
@@ -573,6 +616,10 @@ class Parser {
           const args = [];
           if (!this.check('OPERATOR', ')')) {
             const parseArgument = () => {
+              if (this.match('OPERATOR', '...')) {
+                args.push({ type: 'ForwardingArguments' });
+                return;
+              }
               if (this.isKeywordArgumentStart()) {
                 args.push(this.parseKeywordArgumentGroup());
               } else {
@@ -643,6 +690,10 @@ class Parser {
       if (this.canCommandCall(expr)) {
         const args = [];
         const parseArgument = () => {
+          if (this.match('OPERATOR', '...')) {
+            args.push({ type: 'ForwardingArguments' });
+            return;
+          }
           if (this.isKeywordArgumentStart()) {
             args.push(this.parseKeywordArgumentGroup());
           } else {

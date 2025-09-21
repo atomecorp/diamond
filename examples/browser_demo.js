@@ -293,6 +293,93 @@ const __rubyMatchHashPattern = (value, descriptors) => {
   return bindings;
 };
 
+function f(...__args1) {
+  const __blockCandidate2 = __args1.length ? __args1[__args1.length - 1] : undefined;
+  const blk = typeof __blockCandidate2 === 'function' ? __blockCandidate2 : undefined;
+  if (typeof __blockCandidate2 === 'function') __args1.pop();
+  let __kwargs3 = {};
+  if (__args1.length) {
+    const __kwCandidate4 = __args1[__args1.length - 1];
+    if (__kwCandidate4 && typeof __kwCandidate4 === 'object' && !Array.isArray(__kwCandidate4)) {
+      __kwargs3 = __kwCandidate4;
+      __args1.pop();
+    } else if (true) {
+      __kwargs3 = {};
+    } else {
+      __kwargs3 = undefined;
+    }
+  }
+  if (__kwargs3 === undefined) __kwargs3 = {};
+  const a = __args1.length ? __args1.shift() : undefined;
+  let b = __args1.length ? __args1.shift() : undefined;
+  if (b === undefined) b = 2;
+  const rest = __args1.splice(0);
+  const __kwUsed5 = new Set();
+  if (__kwargs3 === undefined || !Object.prototype.hasOwnProperty.call(__kwargs3, "c")) {
+    throw new Error("ArgumentError: missing keyword: c");
+  }
+  const c = __kwargs3["c"];
+  __kwUsed5.add("c");
+  let d = __kwargs3 && Object.prototype.hasOwnProperty.call(__kwargs3, "d") ? __kwargs3["d"] : 4;
+  __kwUsed5.add("d");
+  const kw = {};
+  if (__kwargs3 && typeof __kwargs3 === 'object') {
+    for (const __key in __kwargs3) {
+      if (!Object.prototype.hasOwnProperty.call(__kwargs3, __key)) continue;
+      if (__kwUsed5.has(__key)) continue;
+      kw[__key] = __kwargs3[__key];
+    }
+  }
+  return [a, b, rest, c, d, kw, __rubyClassName(blk)];
+}
+__rubySend(this, "f", [1, 3, 4, 5, { c: 7, x: 9 }], (() => {
+  let __self6 = this;
+  const __block7 = function(...__args8) {
+    return (function() {
+}).apply(__self6, __args8);
+  };
+  __block7.__rubyBind = (value) => {
+    const __prev9 = __self6;
+    __self6 = value;
+    return () => {
+      __self6 = __prev9;
+    };
+  };
+  return __block7;
+})());
+function g(...__args10) {
+  const __blockCandidate11 = __args10.length ? __args10[__args10.length - 1] : undefined;
+  const __block = typeof __blockCandidate11 === 'function' ? __blockCandidate11 : undefined;
+  if (typeof __blockCandidate11 === 'function') __args10.pop();
+  let __kwargs12 = undefined;
+  if (__args10.length) {
+    const __kwCandidate13 = __args10[__args10.length - 1];
+    if (__kwCandidate13 && typeof __kwCandidate13 === 'object' && !Array.isArray(__kwCandidate13)) {
+      __kwargs12 = __kwCandidate13;
+      __args10.pop();
+    } else if (false) {
+    } else {
+      __kwargs12 = undefined;
+    }
+  }
+  const __forwardArgs14 = __args10.slice();
+  return __rubySend(this, "f", (__kwargs12 === undefined ? __forwardArgs14.slice() : __forwardArgs14.concat(__kwargs12)), __block);
+}
+console.log(__rubySend(this, "g", [1, 3, 4, 5, { c: 7, x: 9 }], (() => {
+  let __self19 = this;
+  const __block20 = function(...__args21) {
+    return (function() {
+}).apply(__self19, __args21);
+  };
+  __block20.__rubyBind = (value) => {
+    const __prev22 = __self19;
+    __self19 = value;
+    return () => {
+      __self19 = __prev22;
+    };
+  };
+  return __block20;
+})()));
 class Task {
   constructor(title) {
     this.__title = title;
@@ -321,20 +408,20 @@ class TodoList {
   show() {
     console.log("\n--- Mes Tâches ---");
     return this.__tasks.forEach((() => {
-  let __self1 = this;
-  const __block2 = function(...__args3) {
+  let __self23 = this;
+  const __block24 = function(...__args25) {
     return (function(task, i) {
       return console.log(`${i + 1}. ${task}`);
-    }).apply(__self1, __args3);
+    }).apply(__self23, __args25);
   };
-  __block2.__rubyBind = (value) => {
-    const __prev4 = __self1;
-    __self1 = value;
+  __block24.__rubyBind = (value) => {
+    const __prev26 = __self23;
+    __self23 = value;
     return () => {
-      __self1 = __prev4;
+      __self23 = __prev26;
     };
   };
-  return __block2;
+  return __block24;
 })());
   }
   mark_task_done(index) {
@@ -377,20 +464,20 @@ function avec_trois(val, val2, val3, __block) {
   }
 }
 __rubySend(this, "avec_trois", [1, 2, 3], (() => {
-  let __self5 = this;
-  const __block6 = function(...__args7) {
+  let __self27 = this;
+  const __block28 = function(...__args29) {
     return (function(a, b) {
   return console.log(`a = ${a}, b = ${b}`);
-}).apply(__self5, __args7);
+}).apply(__self27, __args29);
   };
-  __block6.__rubyBind = (value) => {
-    const __prev8 = __self5;
-    __self5 = value;
+  __block28.__rubyBind = (value) => {
+    const __prev30 = __self27;
+    __self27 = value;
     return () => {
-      __self5 = __prev8;
+      __self27 = __prev30;
     };
   };
-  return __block6;
+  return __block28;
 })());
 a = { toto: "titi", tata: "tutu" };
 console.log(a["tata"]);
@@ -407,8 +494,8 @@ console.log(__rubyClassName(c));
 class MyDynamicClass {
   static my_attr_accessor(...names) {
     return names.forEach((() => {
-  let __self17 = this;
-  const __block18 = function(...__args19) {
+  let __self39 = this;
+  const __block40 = function(...__args41) {
     return (function(name) {
       this.prototype[name] = function() {
         return this[__rubyIvarName(`@${name}`)];
@@ -416,16 +503,16 @@ class MyDynamicClass {
       return this.prototype[`${name}=`] = function(value) {
         return this[__rubyIvarName(`@${name}`)] = value;
       };
-    }).apply(__self17, __args19);
+    }).apply(__self39, __args41);
   };
-  __block18.__rubyBind = (value) => {
-    const __prev20 = __self17;
-    __self17 = value;
+  __block40.__rubyBind = (value) => {
+    const __prev42 = __self39;
+    __self39 = value;
     return () => {
-      __self17 = __prev20;
+      __self39 = __prev42;
     };
   };
-  return __block18;
+  return __block40;
 })());
   }
 }
@@ -451,20 +538,20 @@ class Model {
 class User extends Model {
 }
 __rubySend(User, "attr_with_callback", ["email"], (() => {
-  let __self29 = this;
-  const __block30 = function(...__args31) {
+  let __self51 = this;
+  const __block52 = function(...__args53) {
     return (function(new_email) {
     return console.log(`📩 Email mis à jour: ${new_email}`);
-  }).apply(__self29, __args31);
+  }).apply(__self51, __args53);
   };
-  __block30.__rubyBind = (value) => {
-    const __prev32 = __self29;
-    __self29 = value;
+  __block52.__rubyBind = (value) => {
+    const __prev54 = __self51;
+    __self51 = value;
     return () => {
-      __self29 = __prev32;
+      __self51 = __prev54;
     };
   };
-  return __block30;
+  return __block52;
 })());
 u = new User();
 u["email="]("alice@example.com");
@@ -509,55 +596,55 @@ to_capitalize = (str) => {
   return __rubySend(__rubySend(__rubySplit(str), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined);
 };
 remove_short = (() => {
-  let __self69 = this;
-  const __block70 = function(...__args71) {
+  let __self91 = this;
+  const __block92 = function(...__args93) {
     return (function(str) {
   return __rubySend(__rubySplit(str).filter((() => {
-  let __self65 = this;
-  const __block66 = function(...__args67) {
+  let __self87 = this;
+  const __block88 = function(...__args89) {
     return (function(_1) {
     return _1.length > 3;
-  }).apply(__self65, __args67);
+  }).apply(__self87, __args89);
   };
-  __block66.__rubyBind = (value) => {
-    const __prev68 = __self65;
-    __self65 = value;
+  __block88.__rubyBind = (value) => {
+    const __prev90 = __self87;
+    __self87 = value;
     return () => {
-      __self65 = __prev68;
+      __self87 = __prev90;
     };
   };
-  return __block66;
+  return __block88;
 })()), "join", [" "], undefined);
-}).apply(__self69, __args71);
+}).apply(__self91, __args93);
   };
-  __block70.__rubyBind = (value) => {
-    const __prev72 = __self69;
-    __self69 = value;
+  __block92.__rubyBind = (value) => {
+    const __prev94 = __self91;
+    __self91 = value;
     return () => {
-      __self69 = __prev72;
+      __self91 = __prev94;
     };
   };
-  return __block70;
+  return __block92;
 })();
 reverse_text = (str) => {
   return __rubyReverse(str);
 };
 text = "bonjour à tous les amis du ruby";
 processed = __rubySend(__rubySend(__rubySend(__rubySend(__rubySend(new TextProcessor(text), "transform", [], (() => {
-  let __self1093 = this;
-  const __block1094 = function(...__args1095) {
+  let __self1115 = this;
+  const __block1116 = function(...__args1117) {
     return (function(_1) {
   return __rubyStrip(_1);
-}).apply(__self1093, __args1095);
+}).apply(__self1115, __args1117);
   };
-  __block1094.__rubyBind = (value) => {
-    const __prev1096 = __self1093;
-    __self1093 = value;
+  __block1116.__rubyBind = (value) => {
+    const __prev1118 = __self1115;
+    __self1115 = value;
     return () => {
-      __self1093 = __prev1096;
+      __self1115 = __prev1118;
     };
   };
-  return __block1094;
+  return __block1116;
 })()), "apply", [to_capitalize], undefined), "apply", [remove_short], undefined), "apply", [reverse_text], undefined), "result", [], undefined);
 console.log(processed);
 const Forwardable = {};
@@ -566,7 +653,7 @@ String.prototype["split_predicate"] = function() {
   let attr;
   let op;
   let op_map;
-  (() => { const __multi1097 = __rubyMatch(this, new RegExp("^(\\w+)_(gt|lt|eq)$", ""))?.captures(); [attr, op] = __rubyMultiAssign(__multi1097, 2); return __multi1097; })();
+  (() => { const __multi1119 = __rubyMatch(this, new RegExp("^(\\w+)_(gt|lt|eq)$", ""))?.captures(); [attr, op] = __rubyMultiAssign(__multi1119, 2); return __multi1119; })();
   if (!attr) {
     return null;
   }
@@ -584,26 +671,26 @@ class Query {
     let attr;
     let op;
     let value;
-    const __blockCandidate1098 = args.length ? args[args.length - 1] : undefined;
-    const __block = typeof __blockCandidate1098 === 'function' ? __blockCandidate1098 : undefined;
-    if (typeof __blockCandidate1098 === 'function') args.pop();
-    if ((() => { const __multi1099 = __rubySend(String(name), "split_predicate", [], undefined); [attr, op] = __rubyMultiAssign(__multi1099, 2); return __multi1099; })()) {
+    const __blockCandidate1120 = args.length ? args[args.length - 1] : undefined;
+    const __block = typeof __blockCandidate1120 === 'function' ? __blockCandidate1120 : undefined;
+    if (typeof __blockCandidate1120 === 'function') args.pop();
+    if ((() => { const __multi1121 = __rubySend(String(name), "split_predicate", [], undefined); [attr, op] = __rubyMultiAssign(__multi1121, 2); return __multi1121; })()) {
       value = __rubyFetch(args, 0);
       return __rubySend(this, "where", [], (() => {
-  let __self1100 = this;
-  const __block1101 = function(...__args1102) {
+  let __self1122 = this;
+  const __block1123 = function(...__args1124) {
     return (function(row) {
         return __rubyPublicSend(row[attr] || row[String(attr)], op, value);
-      }).apply(__self1100, __args1102);
+      }).apply(__self1122, __args1124);
   };
-  __block1101.__rubyBind = (value) => {
-    const __prev1103 = __self1100;
-    __self1100 = value;
+  __block1123.__rubyBind = (value) => {
+    const __prev1125 = __self1122;
+    __self1122 = value;
     return () => {
-      __self1100 = __prev1103;
+      __self1122 = __prev1125;
     };
   };
-  return __block1101;
+  return __block1123;
 })());
     }
     return (() => {   const __superMethod = super.method_missing;   if (typeof __superMethod !== 'function') {     throw new Error("NoMethodError: undefined method " + String(arguments[0]) + " for " + String(this));   }   return __superMethod.apply(this, arguments); })();
@@ -628,50 +715,50 @@ Query.prototype["to_a"] = function(...args) {
 rows = Object.freeze([{ name: "Alice", age: 30, role: "dev" }, { "name": "Bob", "age": 25, "role": "ops" }, { name: "Cara", age: 35, role: "dev" }]);
 q = new Query(rows);
 result = __rubySend(__rubySend(__rubySend(q, "age_gt", [28], undefined), "where", [], (() => {
-  let __self1116 = this;
-  const __block1117 = function(...__args1118) {
+  let __self1138 = this;
+  const __block1139 = function(...__args1140) {
     return (function(_1) {
   return (_1["role"] || _1["role"]) === "dev";
-}).apply(__self1116, __args1118);
+}).apply(__self1138, __args1140);
   };
-  __block1117.__rubyBind = (value) => {
-    const __prev1119 = __self1116;
-    __self1116 = value;
+  __block1139.__rubyBind = (value) => {
+    const __prev1141 = __self1138;
+    __self1138 = value;
     return () => {
-      __self1116 = __prev1119;
+      __self1138 = __prev1141;
     };
   };
-  return __block1117;
+  return __block1139;
 })()), "to_a", [], undefined);
 result.forEach((() => {
-  let __self1123 = this;
-  const __block1124 = function(...__args1125) {
+  let __self1145 = this;
+  const __block1146 = function(...__args1147) {
     return (function(row) {
-  const __case1120 = row;
-  let __pattern1121;
-  let __pattern1122;
-  if ((__pattern1121 = __rubyMatchHashPattern(__case1120, [{ binding: "name", keys: ["name"] }, { binding: "age", keys: ["age"] }, { binding: "role", keys: ["role"] }]))) {
-    const name = __pattern1121["name"];
-    const age = __pattern1121["age"];
-    const role = __pattern1121["role"];
+  const __case1142 = row;
+  let __pattern1143;
+  let __pattern1144;
+  if ((__pattern1143 = __rubyMatchHashPattern(__case1142, [{ binding: "name", keys: ["name"] }, { binding: "age", keys: ["age"] }, { binding: "role", keys: ["role"] }]))) {
+    const name = __pattern1143["name"];
+    const age = __pattern1143["age"];
+    const role = __pattern1143["role"];
     return console.log(`${name} (${age}) — ${role}`);
   }
-  else if ((__pattern1122 = __rubyMatchHashPattern(__case1120, [{ binding: "name", keys: ["name"] }, { binding: "age", keys: ["age"] }, { binding: "role", keys: ["role"] }]))) {
-    const name = __pattern1122["name"];
-    const age = __pattern1122["age"];
-    const role = __pattern1122["role"];
+  else if ((__pattern1144 = __rubyMatchHashPattern(__case1142, [{ binding: "name", keys: ["name"] }, { binding: "age", keys: ["age"] }, { binding: "role", keys: ["role"] }]))) {
+    const name = __pattern1144["name"];
+    const age = __pattern1144["age"];
+    const role = __pattern1144["role"];
     return console.log(`${name} (${age}) — ${role}`);
   }
-}).apply(__self1123, __args1125);
+}).apply(__self1145, __args1147);
   };
-  __block1124.__rubyBind = (value) => {
-    const __prev1126 = __self1123;
-    __self1123 = value;
+  __block1146.__rubyBind = (value) => {
+    const __prev1148 = __self1145;
+    __self1145 = value;
     return () => {
-      __self1123 = __prev1126;
+      __self1145 = __prev1148;
     };
   };
-  return __block1124;
+  return __block1146;
 })());
 class Contexte {
   constructor(val, val2, val3) {
@@ -691,22 +778,22 @@ Contexte.prototype["val3"] = function() { return this.__val3; };
 Contexte.prototype["val3="] = function(value) { this.__val3 = value; return value; };
 obj = new Contexte(10, 20, 30);
 __rubySend(obj, "exec", [], (() => {
-  let __self1127 = this;
-  const __block1128 = function(...__args1129) {
+  let __self1149 = this;
+  const __block1150 = function(...__args1151) {
     return (function() {
   console.log(`val  = ${__rubyImplicitCall(this, "val")}`);
   console.log(`val2 = ${__rubyImplicitCall(this, "val2")}`);
   return console.log(`val3 = ${__rubyImplicitCall(this, "val3")}`);
-}).apply(__self1127, __args1129);
+}).apply(__self1149, __args1151);
   };
-  __block1128.__rubyBind = (value) => {
-    const __prev1130 = __self1127;
-    __self1127 = value;
+  __block1150.__rubyBind = (value) => {
+    const __prev1152 = __self1149;
+    __self1149 = value;
     return () => {
-      __self1127 = __prev1130;
+      __self1149 = __prev1152;
     };
   };
-  return __block1128;
+  return __block1150;
 })());
 class Universe {
   static messages() {
@@ -724,20 +811,20 @@ class Universe {
   }
 }
 __rubySend(Universe, "on", ["hello"], (() => {
-  let __self1131 = this;
-  const __block1132 = function(...__args1133) {
+  let __self1153 = this;
+  const __block1154 = function(...__args1155) {
     return (function(params) {
   return console.log(`Message reçu: ${params["content"]}`);
-}).apply(__self1131, __args1133);
+}).apply(__self1153, __args1155);
   };
-  __block1132.__rubyBind = (value) => {
-    const __prev1134 = __self1131;
-    __self1131 = value;
+  __block1154.__rubyBind = (value) => {
+    const __prev1156 = __self1153;
+    __self1153 = value;
     return () => {
-      __self1131 = __prev1134;
+      __self1153 = __prev1156;
     };
   };
-  return __block1132;
+  return __block1154;
 })());
 __rubySend(Universe, "server_receiver", [{ message_id: "hello", content: "Salut depuis Universe 👽" }], undefined);
 class FileSystem {
@@ -765,20 +852,20 @@ class FileWorker {
 fs = new FileSystem("FS1");
 worker = new FileWorker("Alice");
 __rubySend(fs, "file_handler", [worker, "notes.txt", "Hello World !", (() => {
-  let __self1135 = this;
-  const __block1136 = function(...__args1137) {
+  let __self1157 = this;
+  const __block1158 = function(...__args1159) {
     return (function(h) {
   return __rubySend(this, "log", [h], undefined);
-}).apply(__self1135, __args1137);
+}).apply(__self1157, __args1159);
   };
-  __block1136.__rubyBind = (value) => {
-    const __prev1138 = __self1135;
-    __self1135 = value;
+  __block1158.__rubyBind = (value) => {
+    const __prev1160 = __self1157;
+    __self1157 = value;
     return () => {
-      __self1135 = __prev1138;
+      __self1157 = __prev1160;
     };
   };
-  return __block1136;
+  return __block1158;
 })()], undefined);
 class Greeter {
   constructor(name) {
@@ -794,3 +881,20 @@ class Greeter {
   }
 }
 __rubySend(new Greeter("Jean"), "greet", [2], undefined);
+function test_equal(val) {
+  if (val === undefined) val = 42;
+  return console.log(`val = ${val}`);
+}
+__rubySend(this, "test_equal", [], undefined);
+function test_multi(...val) {
+  return console.log(`val = ${val}`);
+}
+__rubySend(this, "test_multi", [1, 2, 3, 4, 5], undefined);
+function str_interpolate(name) {
+  return `Hello, ${name}!`;
+}
+console.log(__rubySend(this, "str_interpolate", ["Alice"], undefined));
+function str_concat(str) {
+  return __rubyToInteger(str) + 100;
+}
+console.log(__rubySend(this, "str_concat", ["12"], undefined));

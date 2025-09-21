@@ -1,3 +1,12 @@
+# ---  14th check   ---
+
+def f(a, b=2, *rest, c:, d: 4, **kw, &blk); [a,b,rest,c,d,kw, blk.class]; end
+f(1,3,4,5, c: 7, x: 9) { }
+def g(...); f(...); end
+
+puts g(1,3,4,5, c: 7, x: 9) { }
+
+
 # ---  first check---
 
 # Mini To-Do List en Ruby
@@ -417,4 +426,38 @@ class Greeter
 end
 
 Greeter.new("Jean").greet(2)
+
+# ---  11th check   ---
+
+def test_equal(val=42)
+  puts "val = #{val}"
+end
+test_equal
+
+
+def test_multi(*val)
+  puts "val = #{val}"
+end
+
+test_multi(1,2,3,4,5)
+
+# ---  12th check   ---
+
+
+def str_interpolate(name)
+  "Hello, #{name}!"
+end 
+
+puts str_interpolate("Alice")
+
+# ---  13th check   ---
+
+def str_concat(str)
+  str.to_i + 100
+end
+
+puts str_concat("12")
+
+
+
 

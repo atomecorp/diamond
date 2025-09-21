@@ -649,6 +649,184 @@ class Emitter {
     return null;
   }
 
+  prepareMethodParameters(params, scope, options = {}) {
+    const structures = [];
+    let hasKeywords = false;
+    let hasForwarding = false;
+
+    for (const param of params) {
+      switch (param.type) {
+        case 'Identifier': {
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'positional', name: safeName, original: param.name });
+          break;
+        }
+        case 'OptionalParameter': {
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'optional', name: safeName, original: param.name, default: param.default });
+          break;
+        }
+        case 'RestParameter': {
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'rest', name: safeName });
+          break;
+        }
+        case 'BlockParameter': {
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'block', name: safeName });
+          break;
+        }
+        case 'KeywordParameter': {
+          hasKeywords = true;
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'keywordRequired', name: safeName, key: param.name });
+          break;
+        }
+        case 'KeywordOptionalParameter': {
+          hasKeywords = true;
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'keywordOptional', name: safeName, key: param.name, default: param.default });
+          break;
+        }
+        case 'KeywordRestParameter': {
+          hasKeywords = true;
+          const safeName = this.getRenamedName(scope, param.name);
+          structures.push({ kind: 'keywordRest', name: safeName });
+          break;
+        }
+        case 'ForwardingParameter': {
+          hasForwarding = true;
+          structures.push({ kind: 'forwarding' });
+          break;
+        }
+        default:
+          throw new Error(`Unsupported parameter type: ${param.type}`);
+      }
+    }
+
+    const useGeneric = hasKeywords || hasForwarding;
+
+    const result = {
+      useGeneric,
+      paramSignature: [],
+      optionalParams: [],
+      blockParamName: null,
+      blockFromRest: null,
+      genericInfo: null
+    };
+
+    if (useGeneric) {
+      const rawArgsName = this.generateUniqueId('__args');
+      const positional = [];
+      const optional = [];
+      let restName = null;
+      const keywordRequired = [];
+      const keywordOptional = [];
+      let keywordRest = null;
+      let blockName = null;
+
+      for (const info of structures) {
+        switch (info.kind) {
+          case 'positional':
+            positional.push({ name: info.name });
+            break;
+          case 'optional':
+            optional.push({ name: info.name, default: info.default });
+            break;
+          case 'rest':
+            restName = info.name;
+            break;
+          case 'block':
+            blockName = info.name;
+            break;
+          case 'keywordRequired':
+            keywordRequired.push({ name: info.name, key: info.key });
+            break;
+          case 'keywordOptional':
+            keywordOptional.push({ name: info.name, key: info.key, default: info.default });
+            break;
+          case 'keywordRest':
+            keywordRest = info.name;
+            break;
+          case 'forwarding':
+            // no additional data needed here
+            break;
+          default:
+            break;
+        }
+      }
+
+      if (!blockName && options.usesYield) {
+        blockName = '__block';
+      }
+
+      result.paramSignature = [`...${rawArgsName}`];
+      result.blockParamName = blockName;
+      result.genericInfo = {
+        rawArgsName,
+        positional,
+        optional,
+        rest: restName,
+        keywordRequired,
+        keywordOptional,
+        keywordRest,
+        hasExplicitKeywords: hasKeywords,
+        blockParamName: blockName,
+        usesYield: options.usesYield,
+        forwarding: hasForwarding
+      };
+    } else {
+      const paramNames = [];
+      let restName = null;
+      let blockName = null;
+      let blockFromRest = null;
+      const optionalParams = [];
+
+      for (const info of structures) {
+        switch (info.kind) {
+          case 'positional':
+            paramNames.push(info.name);
+            break;
+          case 'optional':
+            paramNames.push(info.name);
+            optionalParams.push({ name: info.name, default: info.default });
+            break;
+          case 'rest':
+            paramNames.push(`...${info.name}`);
+            restName = info.name;
+            break;
+          case 'block':
+            blockName = info.name;
+            if (restName) {
+              blockFromRest = { rest: restName, block: info.name };
+            } else {
+              paramNames.push(info.name);
+            }
+            break;
+          default:
+            // should not reach here without generic handling
+            break;
+        }
+      }
+
+      if (options.usesYield && !blockName) {
+        blockName = '__block';
+        if (restName) {
+          blockFromRest = { rest: restName, block: blockName };
+        } else {
+          paramNames.push(blockName);
+        }
+      }
+
+      result.paramSignature = paramNames;
+      result.optionalParams = optionalParams;
+      result.blockParamName = blockName;
+      result.blockFromRest = blockFromRest;
+    }
+
+    return result;
+  }
+
   isRefineCall(expr) {
     return expr && expr.type === 'CallExpression' && expr.callee.type === 'Identifier' && expr.callee.name === 'refine';
   }
@@ -692,48 +870,8 @@ class Emitter {
   emitRefinedMethod(targetExpr, methodNode, context) {
     const indent = this.indent();
     const scope = this.scopeInfo.get(methodNode);
-    const params = [];
-    const optionalParams = [];
-    let blockParamName = null;
-    let restParamName = null;
-    let blockFromRest = null;
-
-    for (const param of methodNode.params) {
-      if (param.type === 'RestParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        params.push(`...${safeName}`);
-        restParamName = safeName;
-        continue;
-      }
-      if (param.type === 'BlockParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        blockParamName = safeName;
-        if (restParamName) {
-          blockFromRest = { rest: restParamName, block: safeName };
-        } else {
-          params.push(safeName);
-        }
-        continue;
-      }
-      if (param.type === 'OptionalParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        params.push(safeName);
-        optionalParams.push({ name: safeName, default: param.default });
-        continue;
-      }
-      const safeName = this.getRenamedName(scope, param.name);
-      params.push(safeName);
-    }
-
-    if (methodNode.usesYield && !blockParamName) {
-      blockParamName = '__block';
-      if (restParamName) {
-        blockFromRest = { rest: restParamName, block: blockParamName };
-      } else {
-        params.push(blockParamName);
-      }
-    }
-
+    const parameterAnalysis = this.prepareMethodParameters(methodNode.params, scope, { usesYield: !!methodNode.usesYield });
+    const paramsCode = parameterAnalysis.paramSignature.join(', ');
     const fnBody = this.emitFunctionBody(
       methodNode.body,
       {
@@ -743,17 +881,17 @@ class Emitter {
         inFunction: true,
         allowImplicitReturn: true,
         methodType: 'instance',
-        blockParamName,
-        optionalParams,
-        blockFromRest,
-        methodBlockInfo: blockFromRest,
-        currentMethodName: methodNode.id.name
+        blockParamName: parameterAnalysis.blockParamName,
+        optionalParams: parameterAnalysis.optionalParams,
+        blockFromRest: parameterAnalysis.blockFromRest,
+        methodBlockInfo: parameterAnalysis.blockFromRest,
+        currentMethodName: methodNode.id.name,
+        ...(parameterAnalysis.genericInfo ? { genericArgsInfo: parameterAnalysis.genericInfo } : {})
       },
       scope
     );
 
-    const paramCode = params.join(', ');
-    return `${indent}${targetExpr}.prototype[${this.quote(methodNode.id.name)}] = function(${paramCode}) ${fnBody};`;
+    return `${indent}${targetExpr}.prototype[${this.quote(methodNode.id.name)}] = function(${paramsCode}) ${fnBody};`;
   }
 
   emitExpression(node, context = {}) {
@@ -874,14 +1012,18 @@ class Emitter {
     const calleeName = this.extractCalleeName(node.callee);
     const receiverCode = this.extractCalleeObjectCode(node.callee, context);
 
-    const argList = [];
+    const processedArgs = [];
     let blockPassExpression = null;
     for (const arg of node.arguments) {
       if (arg && arg.type === 'BlockPassExpression') {
         blockPassExpression = this.emitBlockPassExpression(arg, context);
         continue;
       }
-      argList.push(this.emitArgumentExpression(arg, context));
+      if (arg && arg.type === 'ForwardingArguments') {
+        processedArgs.push({ node: arg, code: null });
+        continue;
+      }
+      processedArgs.push({ node: arg, code: this.emitArgumentExpression(arg, context) });
     }
 
     const inlineBlockNode = node.block || null;
@@ -892,26 +1034,11 @@ class Emitter {
       if (blockCode) {
         return blockCode;
       }
-      if (argList.length) {
-        return `${calleeName}(${argList.join(', ')})`;
+      if (processedArgs.length) {
+        const codes = processedArgs.map(entry => entry.code);
+        return `${calleeName}(${codes.join(', ')})`;
       }
       return `${calleeName}()`;
-    }
-
-    if (calleeName === 'instance_eval' && node.callee.type === 'Identifier' && blockCode && !argList.length) {
-      this.requireRuntime('instanceEval');
-      const receiverExpr = this.resolveImplicitCallReceiver(context);
-      const evalBlock = inlineBlockNode
-        ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true })
-        : blockCode;
-      return `__rubyInstanceEval(${receiverExpr}, ${evalBlock})`;
-    }
-
-    if (calleeName === 'instance_exec' && node.callee.type === 'Identifier' && blockCode) {
-      this.requireRuntime('instanceExec');
-      const execArgs = argList.length ? `[${argList.join(', ')}]` : '[]';
-      const receiverExpr = this.resolveImplicitCallReceiver(context);
-      return `__rubyInstanceExec(${receiverExpr}, ${execArgs}, ${blockCode})`;
     }
 
     if (
@@ -964,6 +1091,9 @@ class Emitter {
       return args.length ? `__rubyGets(${args})` : '__rubyGets()';
     }
 
+    const callArgs = this.buildCallArguments(processedArgs, blockCode);
+    const { finalArgCodes, argsArray, argsWithBlock, blockArg } = callArgs;
+
     let memberProperty = null;
     let memberObjectCode = null;
     if (
@@ -988,7 +1118,10 @@ class Emitter {
         memberObjectCode = this.emitGetsCall();
       }
 
-      if (memberProperty === 'strftime' && this.isTimeNowExpression(node.callee.object)) {
+    const callArgs = this.buildCallArguments(processedArgs, blockCode);
+    const { finalArgCodes, argsArray, argsWithBlock, blockArg } = callArgs;
+
+    if (memberProperty === 'strftime' && this.isTimeNowExpression(node.callee.object)) {
         this.requireRuntime('strftime');
         const format = node.arguments[0] ? this.emitExpression(node.arguments[0], context) : 'undefined';
         return `__rubyStrftime(${format})`;
@@ -1073,7 +1206,7 @@ class Emitter {
         return `__rubyMatch(${memberObjectCode}, ${pattern})`;
       }
 
-      if (memberProperty === 'instance_eval' && blockCode && !argList.length) {
+      if (memberProperty === 'instance_eval' && blockCode && !processedArgs.length) {
         this.requireRuntime('instanceEval');
         const evalBlock = inlineBlockNode
           ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true })
@@ -1083,7 +1216,7 @@ class Emitter {
 
       if (memberProperty === 'instance_exec' && blockCode) {
         this.requireRuntime('instanceExec');
-        const execArgs = argList.length ? `[${argList.join(', ')}]` : '[]';
+        const execArgs = finalArgCodes.length ? `[${finalArgCodes.join(', ')}]` : '[]';
         return `__rubyInstanceExec(${memberObjectCode}, ${execArgs}, ${blockCode})`;
       }
     }
@@ -1130,11 +1263,59 @@ class Emitter {
       calleeCode = this.emitExpression(node.callee, context);
     }
 
-    const argsArray = argList.length ? `[${argList.join(', ')}]` : '[]';
-    const blockArg = blockCode ? blockCode : 'undefined';
-    const argsWithBlock = blockCode ? [...argList, blockCode] : [...argList];
+    const hasForwardingArg = processedArgs.some(entry => entry.node && entry.node.type === 'ForwardingArguments');
+
+    if (hasForwardingArg) {
+      const explicitArgs = processedArgs.filter(entry => !entry.node || entry.node.type !== 'ForwardingArguments');
+      if (explicitArgs.length) {
+        throw new Error('Forwarding arguments cannot be combined with explicit arguments in this transpiler');
+      }
+      const forwardingInfo = context.forwardingInfo;
+      if (!forwardingInfo) {
+        throw new Error('Forwarding arguments used outside of a forwarding method');
+      }
+      const positionalName = forwardingInfo.positionalName;
+      const keywordExpr = forwardingInfo.keywordName || 'undefined';
+      const blockExpr = forwardingInfo.blockName || 'undefined';
+      const argsExpr = `(${keywordExpr} === undefined ? ${positionalName}.slice() : ${positionalName}.concat(${keywordExpr}))`;
+
+      if (!memberProperty && node.callee.type === 'Identifier') {
+        if (calleeName === 'eval') {
+          const evalArgsExpr = blockExpr !== 'undefined' ? `${argsExpr}.concat(${blockExpr})` : argsExpr;
+          return `eval.apply(undefined, ${evalArgsExpr})`;
+        }
+        this.requireRuntime('send');
+        const implicitReceiver = this.resolveImplicitCallReceiver(context);
+        return `__rubySend(${implicitReceiver}, ${this.quote(calleeName)}, ${argsExpr}, ${blockExpr})`;
+      }
+
+      if (memberProperty) {
+        this.requireRuntime('send');
+        return `__rubySend(${memberObjectCode}, ${this.quote(memberProperty)}, ${argsExpr}, ${blockExpr})`;
+      }
+
+      // Fallback for direct callable expressions
+      const appliedArgs = blockExpr !== 'undefined' ? `${argsExpr}.concat(${blockExpr})` : argsExpr;
+      return `${calleeCode}.apply(this, ${appliedArgs})`;
+    }
 
     if (!memberProperty && node.callee.type === 'Identifier') {
+      if (calleeName === 'instance_eval' && blockCode && !finalArgCodes.length) {
+        this.requireRuntime('instanceEval');
+        const receiverExpr = this.resolveImplicitCallReceiver(context);
+        const evalBlock = inlineBlockNode
+          ? this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true })
+          : blockCode;
+        return `__rubyInstanceEval(${receiverExpr}, ${evalBlock})`;
+      }
+
+      if (calleeName === 'instance_exec' && blockCode) {
+        this.requireRuntime('instanceExec');
+        const execArgs = finalArgCodes.length ? `[${finalArgCodes.join(', ')}]` : '[]';
+        const receiverExpr = this.resolveImplicitCallReceiver(context);
+        return `__rubyInstanceExec(${receiverExpr}, ${execArgs}, ${blockCode})`;
+      }
+
       if (calleeName === 'eval') {
         const callArgs = argsWithBlock.join(', ');
         return callArgs.length ? `eval(${callArgs})` : 'eval()';
@@ -1148,7 +1329,7 @@ class Emitter {
     }
 
     if (memberProperty === 'call' && node.callee.type !== 'OptionalMemberExpression') {
-      const args = argList.join(', ');
+      const args = finalArgCodes.join(', ');
       return `${memberObjectCode}(${args})`;
     }
 
@@ -1231,6 +1412,43 @@ class Emitter {
       return this.emitBlockPassExpression(arg, context);
     }
     return this.emitExpression(arg, context);
+  }
+
+  buildCallArguments(processedArgs, blockCode) {
+    const positionalArgs = [];
+    const keywordArgs = [];
+
+    for (const entry of processedArgs) {
+      if (entry.node && entry.node.keyword) {
+        keywordArgs.push(entry);
+      } else {
+        positionalArgs.push(entry);
+      }
+    }
+
+    let keywordObjectCode = null;
+    if (keywordArgs.length === 1) {
+      keywordObjectCode = keywordArgs[0].code;
+    } else if (keywordArgs.length > 1) {
+      keywordObjectCode = `Object.assign({}, ${keywordArgs.map(arg => arg.code).join(', ')})`;
+    }
+
+    const positionalCodes = positionalArgs.map(entry => entry.code);
+    const finalArgCodes = keywordObjectCode ? [...positionalCodes, keywordObjectCode] : [...positionalCodes];
+    const argsArray = finalArgCodes.length ? `[${finalArgCodes.join(', ')}]` : '[]';
+    const blockArg = blockCode ? blockCode : 'undefined';
+    const argsWithBlock = blockCode ? [...finalArgCodes, blockCode] : [...finalArgCodes];
+
+    return {
+      positionalArgs,
+      keywordArgs,
+      keywordObjectCode,
+      positionalCodes,
+      finalArgCodes,
+      argsArray,
+      blockArg,
+      argsWithBlock
+    };
   }
 
   emitToProcExpression(node, context) {
@@ -1485,49 +1703,8 @@ class Emitter {
     const isStatic = context.inClass && node.target && node.target.type === 'SelfExpression';
     const isConstructor = !isStatic && context.inClass && node.id.name === 'initialize';
     const methodName = isConstructor ? 'constructor' : node.id.name;
-    const paramNames = [];
-    const optionalParams = [];
-    let blockParamName = null;
-    let restParamName = null;
-    let blockFromRest = null;
-
-    for (const param of node.params) {
-      if (param.type === 'RestParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        paramNames.push(`...${safeName}`);
-        restParamName = safeName;
-        continue;
-      }
-      if (param.type === 'BlockParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        blockParamName = safeName;
-        if (restParamName) {
-          blockFromRest = { rest: restParamName, block: safeName };
-        } else {
-          paramNames.push(safeName);
-        }
-        continue;
-      }
-      if (param.type === 'OptionalParameter') {
-        const safeName = this.getRenamedName(scope, param.name);
-        paramNames.push(safeName);
-        optionalParams.push({ name: safeName, default: param.default });
-        continue;
-      }
-      const safeName = this.getRenamedName(scope, param.name);
-      paramNames.push(safeName);
-    }
-
-    if (node.usesYield && !blockParamName) {
-      blockParamName = '__block';
-      if (restParamName) {
-        blockFromRest = { rest: restParamName, block: blockParamName };
-      } else {
-        paramNames.push(blockParamName);
-      }
-    }
-
-    const paramsCode = paramNames.join(', ');
+    const parameterAnalysis = this.prepareMethodParameters(node.params, scope, { usesYield: !!node.usesYield });
+    const paramsCode = parameterAnalysis.paramSignature.join(', ');
     let header;
     if (context.inClass) {
       if (isConstructor) {
@@ -1556,11 +1733,12 @@ class Emitter {
         inFunction: true,
         allowImplicitReturn,
         methodType: isStatic ? 'static' : 'instance',
-        blockParamName,
-        optionalParams,
-        blockFromRest,
-        methodBlockInfo: blockFromRest,
-        currentMethodName: methodName
+        blockParamName: parameterAnalysis.blockParamName,
+        optionalParams: parameterAnalysis.optionalParams,
+        blockFromRest: parameterAnalysis.blockFromRest,
+        methodBlockInfo: parameterAnalysis.blockFromRest,
+        currentMethodName: methodName,
+        ...(parameterAnalysis.genericInfo ? { genericArgsInfo: parameterAnalysis.genericInfo } : {})
       },
       scope
     );
@@ -1576,6 +1754,14 @@ class Emitter {
       for (const name of [...scope.hoisted].sort()) {
         const safeName = this.getRenamedName(scope, name);
         lines.push(this.indent() + `let ${safeName};`);
+      }
+    }
+
+    if (context.genericArgsInfo) {
+      const setup = this.buildGenericArgsHandling(context.genericArgsInfo, context);
+      lines.push(...setup.lines);
+      if (setup.forwardingInfo) {
+        context.forwardingInfo = setup.forwardingInfo;
       }
     }
 
@@ -1603,6 +1789,7 @@ class Emitter {
       const stmtContext = { ...context, isTail };
       delete stmtContext.blockFromRest;
       delete stmtContext.optionalParams;
+      delete stmtContext.genericArgsInfo;
       const stmt = this.emitStatement(statement, stmtContext);
       if (stmt) lines.push(stmt);
     }
@@ -1614,6 +1801,141 @@ class Emitter {
       code += this.indent() + '}';
     }
     return code;
+  }
+
+  buildGenericArgsHandling(info, context) {
+    const lines = [];
+    const indent = this.indent();
+    const argsName = info.rawArgsName;
+
+    const forwardingInfo = {};
+    const needsBlock = !!info.blockParamName || info.usesYield || info.forwarding;
+    const blockVarName = info.blockParamName || (info.usesYield || info.forwarding ? '__block' : null);
+
+    if (needsBlock) {
+      const candidate = this.generateUniqueId('__blockCandidate');
+      lines.push(`${indent}const ${candidate} = ${argsName}.length ? ${argsName}[${argsName}.length - 1] : undefined;`);
+      lines.push(`${indent}const ${blockVarName} = typeof ${candidate} === 'function' ? ${candidate} : undefined;`);
+      lines.push(`${indent}if (typeof ${candidate} === 'function') ${argsName}.pop();`);
+      context.blockParamName = blockVarName;
+      forwardingInfo.blockName = blockVarName;
+    }
+
+    const hasExplicitKeywords = info.keywordRequired.length > 0 || info.keywordOptional.length > 0 || !!info.keywordRest;
+    const needsKeywordHandling = hasExplicitKeywords || info.forwarding;
+    let keywordVarName = null;
+    if (needsKeywordHandling) {
+      keywordVarName = info.keywordVarName || this.generateUniqueId('__kwargs');
+      info.keywordVarName = keywordVarName;
+      const candidate = this.generateUniqueId('__kwCandidate');
+      const baseValue = hasExplicitKeywords ? '{}' : 'undefined';
+      lines.push(`${indent}let ${keywordVarName} = ${baseValue};`);
+      lines.push(`${indent}if (${argsName}.length) {`);
+      lines.push(`${indent}  const ${candidate} = ${argsName}[${argsName}.length - 1];`);
+      lines.push(`${indent}  if (${candidate} && typeof ${candidate} === 'object' && !Array.isArray(${candidate})) {`);
+      lines.push(`${indent}    ${keywordVarName} = ${candidate};`);
+      lines.push(`${indent}    ${argsName}.pop();`);
+      lines.push(`${indent}  } else if (${hasExplicitKeywords ? 'true' : 'false'}) {`);
+      if (hasExplicitKeywords) {
+        lines.push(`${indent}    ${keywordVarName} = {};`);
+      }
+      lines.push(`${indent}  } else {`);
+      lines.push(`${indent}    ${keywordVarName} = undefined;`);
+      lines.push(`${indent}  }`);
+      lines.push(`${indent}}`);
+      if (hasExplicitKeywords) {
+        lines.push(`${indent}if (${keywordVarName} === undefined) ${keywordVarName} = {};`);
+      }
+      forwardingInfo.keywordName = keywordVarName;
+    }
+
+    const positionalAssignments = info.positional || [];
+    for (const entry of positionalAssignments) {
+      lines.push(`${indent}const ${entry.name} = ${argsName}.length ? ${argsName}.shift() : undefined;`);
+    }
+
+    const optionalAssignments = info.optional || [];
+    for (const entry of optionalAssignments) {
+      const defaultCode = this.emitExpression(entry.default, context);
+      lines.push(`${indent}let ${entry.name} = ${argsName}.length ? ${argsName}.shift() : undefined;`);
+      lines.push(`${indent}if (${entry.name} === undefined) ${entry.name} = ${defaultCode};`);
+    }
+
+    if (info.rest) {
+      lines.push(`${indent}const ${info.rest} = ${argsName}.splice(0);`);
+    } else if (!info.forwarding) {
+      lines.push(`${indent}if (${argsName}.length) {`);
+      lines.push(`${indent}  throw new Error("ArgumentError: wrong number of arguments");`);
+      lines.push(`${indent}}`);
+    }
+
+    let usedKeysSet = null;
+    if (hasExplicitKeywords && (info.keywordRequired.length || info.keywordOptional.length || !info.keywordRest)) {
+      usedKeysSet = this.generateUniqueId('__kwUsed');
+      lines.push(`${indent}const ${usedKeysSet} = new Set();`);
+    }
+
+    const hasOwnCall = (keyLiteral) => `Object.prototype.hasOwnProperty.call(${keywordVarName}, ${keyLiteral})`;
+
+    for (const entry of info.keywordRequired || []) {
+      const keyLiteral = this.quote(entry.key);
+      lines.push(`${indent}if (${keywordVarName} === undefined || !${hasOwnCall(keyLiteral)}) {`);
+      lines.push(`${indent}  throw new Error(${this.quote(`ArgumentError: missing keyword: ${entry.key}`)});`);
+      lines.push(`${indent}}`);
+      lines.push(`${indent}const ${entry.name} = ${keywordVarName}[${keyLiteral}];`);
+      if (usedKeysSet) {
+        lines.push(`${indent}${usedKeysSet}.add(${keyLiteral});`);
+      }
+    }
+
+    for (const entry of info.keywordOptional || []) {
+      const keyLiteral = this.quote(entry.key);
+      const defaultCode = this.emitExpression(entry.default, context);
+      if (!hasExplicitKeywords) {
+        lines.push(`${indent}const ${entry.name} = ${defaultCode};`);
+      } else {
+        lines.push(`${indent}let ${entry.name} = ${keywordVarName} && ${hasOwnCall(keyLiteral)} ? ${keywordVarName}[${keyLiteral}] : ${defaultCode};`);
+      }
+      if (usedKeysSet) {
+        lines.push(`${indent}${usedKeysSet}.add(${keyLiteral});`);
+      }
+    }
+
+    if (info.keywordRest) {
+      lines.push(`${indent}const ${info.keywordRest} = {};`);
+      lines.push(`${indent}if (${keywordVarName} && typeof ${keywordVarName} === 'object') {`);
+      lines.push(`${indent}  for (const __key in ${keywordVarName}) {`);
+      lines.push(`${indent}    if (!Object.prototype.hasOwnProperty.call(${keywordVarName}, __key)) continue;`);
+      if (usedKeysSet) {
+        lines.push(`${indent}    if (${usedKeysSet}.has(__key)) continue;`);
+      }
+      lines.push(`${indent}    ${info.keywordRest}[__key] = ${keywordVarName}[__key];`);
+      lines.push(`${indent}  }`);
+      lines.push(`${indent}}`);
+    } else if (hasExplicitKeywords) {
+      const unknownKeys = this.generateUniqueId('__unknownKw');
+      lines.push(`${indent}const ${unknownKeys} = [];`);
+      lines.push(`${indent}for (const __key in ${keywordVarName}) {`);
+      lines.push(`${indent}  if (!Object.prototype.hasOwnProperty.call(${keywordVarName}, __key)) continue;`);
+      if (usedKeysSet) {
+        lines.push(`${indent}  if (${usedKeysSet}.has(__key)) continue;`);
+      }
+      lines.push(`${indent}  ${unknownKeys}.push(__key);`);
+      lines.push(`${indent}}`);
+      lines.push(`${indent}if (${unknownKeys}.length) {`);
+      lines.push(`${indent}  throw new Error("ArgumentError: unknown keyword" + (${unknownKeys}.length > 1 ? "s" : "") + ": " + ${unknownKeys}.join(', '));`);
+      lines.push(`${indent}}`);
+    }
+
+    if (info.forwarding) {
+      const forwardArgs = this.generateUniqueId('__forwardArgs');
+      lines.push(`${indent}const ${forwardArgs} = ${argsName}.slice();`);
+      forwardingInfo.positionalName = forwardArgs;
+      forwardingInfo.keywordName = keywordVarName || 'undefined';
+      forwardingInfo.blockName = blockVarName || 'undefined';
+    }
+
+    return { lines, forwardingInfo: info.forwarding ? forwardingInfo : null };
   }
 
   emitBlockFunction(block, context = {}, options = {}) {
@@ -2123,6 +2445,9 @@ class Emitter {
         this.registerReservedName(scope, param.name);
       }
       if (param.type === 'OptionalParameter' && param.default) {
+        this.collectNode(param.default, scope);
+      }
+      if (param.type === 'KeywordOptionalParameter' && param.default) {
         this.collectNode(param.default, scope);
       }
     }
