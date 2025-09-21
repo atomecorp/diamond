@@ -7,15 +7,16 @@ class Tokenizer {
     this.tokens = [];
     this.keywords = new Set([
       'def', 'end', 'class', 'module', 'if', 'elsif', 'else', 'unless', 'while', 'until', 'loop', 'do', 'then',
-      'case', 'when', 'in', 'true', 'false', 'nil', 'return', 'self', 'break', 'yield', 'using', 'super'
+      'case', 'when', 'in', 'true', 'false', 'nil', 'return', 'self', 'break', 'yield', 'using', 'super',
+      'begin', 'rescue', 'ensure'
     ]);
     this.multiChar = [
       '===', '==', '!=', '<=', '>=', '=>', '...', '..', '::', '&&=', '&&', '||=', '||', '**', '+=', '-=', '*=', '/=', '%=',
-      '<<', '&.', '->'
+      '<<', '>>', '<=>', '=~', '!~', '&.', '->'
     ];
     this.singleChar = new Set([
       '(', ')', '{', '}', '[', ']', ',', '.', ':', ';', '+', '-', '*', '/', '%', '<', '>', '=', '!', '?',
-      '\\', '|', '&'
+      '\\', '|', '&', '@', '^'
     ]);
   }
 
@@ -36,6 +37,11 @@ class Tokenizer {
       const heredoc = this.tryConsumeHeredoc();
       if (heredoc) {
         this.tokens.push(heredoc);
+        continue;
+      }
+
+      if (char === '%' && (this.peek(1) === 'w' || this.peek(1) === 'W')) {
+        this.tokens.push(this.consumePercentStringArray());
         continue;
       }
 
@@ -390,6 +396,76 @@ class Tokenizer {
       }
     }
     return processed.join('\n') + '\n';
+  }
+
+  consumePercentStringArray() {
+    const startLine = this.line;
+    const startColumn = this.column;
+    const isInterpolated = this.peek(1) === 'W';
+    this.advance(2); // consume %w or %W
+
+    const opening = this.peek();
+    const closing = this.matchingDelimiter(opening);
+    if (!closing) {
+      throw new SyntaxError(`Unsupported delimiter for %w literal at ${startLine}:${startColumn}`);
+    }
+
+    this.advance(); // consume opening delimiter
+
+    let buffer = '';
+    const values = [];
+    let escaped = false;
+
+    while (!this.isEOF()) {
+      const char = this.peek();
+
+      if (!escaped && char === closing) {
+        this.advance();
+        if (buffer.length) {
+          values.push(buffer);
+        }
+        return this.createToken('PERCENT_STRING_ARRAY', { values, interpolated: isInterpolated }, startLine, startColumn);
+      }
+
+      if (!escaped && char === '\\') {
+        escaped = true;
+        this.advance();
+        continue;
+      }
+
+      if (!escaped && /\s/.test(char)) {
+        if (buffer.length) {
+          values.push(buffer);
+          buffer = '';
+        }
+        this.advance();
+        if (char === '\n') {
+          this.line += 1;
+          this.column = 1;
+        }
+        continue;
+      }
+
+      buffer += char;
+      escaped = false;
+      this.advance();
+      if (char === '\n') {
+        this.line += 1;
+        this.column = 1;
+      }
+    }
+
+    throw new SyntaxError(`Unterminated %w literal starting at ${startLine}:${startColumn}`);
+  }
+
+  matchingDelimiter(opening) {
+    const pairs = {
+      '(': ')',
+      '[': ']',
+      '{': '}',
+      '<': '>'
+    };
+    return pairs[opening] || opening;
   }
 }
 

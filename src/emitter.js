@@ -72,6 +72,23 @@ class Emitter {
     if (!this.runtimeHelpers.size) return [];
     const lines = [];
 
+    if (this.runtimeHelpers.has('fileConstant')) {
+      if (lines.length) lines.push('');
+      lines.push('const __FILE__ = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && typeof globalThis.__FILE__ !== "undefined") {');
+      lines.push('    return globalThis.__FILE__;');
+      lines.push('  }');
+      lines.push('  if (typeof __rubySourceFile !== "undefined") return __rubySourceFile;');
+      lines.push('  return "unknown.rb";');
+      lines.push('})();');
+      lines.push('if (typeof globalThis !== "undefined") { globalThis.__FILE__ = __FILE__; }');
+    }
+
+    if (this.runtimeHelpers.has('bindingHelper')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyBinding = () => ({ locals: {} });');
+    }
+
     if (this.runtimeHelpers.has('print')) {
       lines.push('const __rubyPrint = (...chunks) => {');
       lines.push('  const text = chunks.map(chunk => String(chunk ?? "")).join("");');
@@ -247,14 +264,27 @@ class Emitter {
     if (this.runtimeHelpers.has('match')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyMatch = (value, pattern) => {');
-      lines.push('  const input = String(value ?? "");');
       const logic = [
-        '  const regex = pattern instanceof RegExp ? pattern : new RegExp(String(pattern));',
-        '  const result = input.match(regex);',
+        '  let input = value;',
+        '  let regex = pattern;',
+        '  if (value instanceof RegExp || (value && typeof value === "object" && typeof value.exec === "function")) {',
+        '    regex = value;',
+        '    input = pattern;',
+        '  }',
+        '  const normalizedInput = String(input ?? "");',
+        '  const normalizedRegex = regex instanceof RegExp ? regex : new RegExp(String(regex));',
+        '  const result = normalizedInput.match(normalizedRegex);',
         '  if (!result) return null;',
-        '  return {',
+        '  const wrapper = {',
         '    captures: () => result.slice(1)',
         '  };',
+        '  result.slice(1).forEach((value, index) => { wrapper[index] = value; });',
+        '  if (result.groups && typeof result.groups === "object") {',
+        '    for (const [key, value] of Object.entries(result.groups)) {',
+        '      wrapper[key] = value;',
+        '    }',
+        '  }',
+        '  return wrapper;',
       ];
       lines.push(...logic);
       lines.push('};');
@@ -296,6 +326,47 @@ class Emitter {
         '    const callArgs = block === undefined ? args : [...args, block];',
         '    return fn.apply(receiver, callArgs);',
         '  }',
+        '  if (typeof methodName === "string") {',
+        '    if (methodName === "tap") {',
+        '      if (typeof block === "function") {',
+        '        const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(receiver) : null;',
+        '        try { block.call(receiver, receiver); } finally { if (typeof restore === "function") restore(); }',
+        '      }',
+        '      return receiver;',
+        '    }',
+        '    if (methodName === "then" || methodName === "yield_self") {',
+        '      if (typeof block === "function") {',
+        '        const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(receiver) : null;',
+        '        try { return block.call(receiver, receiver); } finally { if (typeof restore === "function") restore(); }',
+        '      }',
+        '      return receiver;',
+        '    }',
+        '    if (methodName === "catch") {',
+        '      const tag = args[0];',
+        '      if (typeof block !== "function") return undefined;',
+        '      const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(receiver) : null;',
+        '      try {',
+        '        return block.call(receiver);',
+        '      } catch (error) {',
+        '        if (error && error.__rubyThrowTag !== undefined) {',
+        '          if (tag === undefined || tag === error.__rubyThrowTag || String(tag) === String(error.__rubyThrowTag)) {',
+        '            return error.__rubyThrowValue;',
+        '          }',
+        '        }',
+        '        throw error;',
+        '      } finally {',
+        '        if (typeof restore === "function") restore();',
+        '      }',
+        '    }',
+        '    if (methodName === "throw") {',
+        '      const tag = args[0];',
+        '      const value = args.length > 1 ? args[1] : undefined;',
+        '      const error = new Error("throw");',
+        '      error.__rubyThrowTag = tag;',
+        '      error.__rubyThrowValue = value;',
+        '      throw error;',
+        '    }',
+        '  }',
         '  const missing = receiver.method_missing;',
         '  if (typeof missing === "function") {',
         '    const missingArgs = block === undefined ? [methodName, ...args] : [methodName, ...args, block];',
@@ -305,6 +376,188 @@ class Emitter {
       ];
       lines.push(...helperLogic);
       lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('thread')) {
+      if (lines.length) lines.push('');
+      lines.push('const Thread = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && globalThis.Thread) return globalThis.Thread;');
+      lines.push('  class Thread {');
+      lines.push('    constructor(block) {');
+      lines.push('      this.value = undefined;');
+      lines.push('      Thread.__stack.push(this);');
+      lines.push('      try {');
+      lines.push('        if (typeof block === "function") {');
+      lines.push('          const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(this) : null;');
+      lines.push('          try {');
+      lines.push('            this.value = block();');
+      lines.push('          } finally {');
+      lines.push('            if (typeof restore === "function") restore();');
+      lines.push('          }');
+      lines.push('        }');
+      lines.push('      } finally {');
+      lines.push('        Thread.__stack.pop();');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('    static current() {');
+      lines.push('      const stack = Thread.__stack;');
+      lines.push('      return stack[stack.length - 1] || Thread.__root;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  Thread.__root = {};');
+      lines.push('  Thread.__stack = [Thread.__root];');
+      lines.push('  if (typeof globalThis !== "undefined") globalThis.Thread = Thread;');
+      lines.push('  return Thread;');
+      lines.push('})();');
+    }
+
+    if (this.runtimeHelpers.has('fiber')) {
+      if (lines.length) lines.push('');
+      lines.push('const Fiber = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && globalThis.Fiber) return globalThis.Fiber;');
+      lines.push('  class Fiber {');
+      lines.push('    constructor(block) {');
+      lines.push('      this.value = undefined;');
+      lines.push('      this.block = typeof block === "function" ? block : null;');
+      lines.push('      if (this.block) {');
+      lines.push('        const restore = typeof this.block.__rubyBind === "function" ? this.block.__rubyBind(this) : null;');
+      lines.push('        try {');
+      lines.push('          this.value = this.block();');
+      lines.push('        } finally {');
+      lines.push('          if (typeof restore === "function") restore();');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('    static yield() {');
+      lines.push('      return (value) => value;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  if (typeof globalThis !== "undefined") globalThis.Fiber = Fiber;');
+      lines.push('  return Fiber;');
+      lines.push('})();');
+    }
+
+    if (this.runtimeHelpers.has('enumerator')) {
+      if (lines.length) lines.push('');
+      lines.push('const Enumerator = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && globalThis.Enumerator) return globalThis.Enumerator;');
+      lines.push('  class Enumerator {');
+      lines.push('    constructor(block) {');
+      lines.push('      this.__values = [];');
+      lines.push('      this.__builder = typeof block === "function" ? block : null;');
+      lines.push('      if (this.__builder) {');
+      lines.push('        const restore = typeof this.__builder.__rubyBind === "function" ? this.__builder.__rubyBind(this) : null;');
+      lines.push('        const yielder = {');
+      lines.push('          push: (value) => {');
+      lines.push('            this.__values.push(value);');
+      lines.push('            return value;');
+      lines.push('          }');
+      lines.push('        };');
+      lines.push('        try {');
+      lines.push('          this.__builder(yielder);');
+      lines.push('        } finally {');
+      lines.push('          if (typeof restore === "function") restore();');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('    }');
+      lines.push('    each(block) {');
+      lines.push('      if (typeof block === "function") {');
+      lines.push('        for (const value of this.__values) {');
+      lines.push('          const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(this) : null;');
+      lines.push('          try { block.call(this, value); } finally { if (typeof restore === "function") restore(); }');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('      return this;');
+      lines.push('    }');
+      lines.push('    toArray() {');
+      lines.push('      return this.__values.slice();');
+      lines.push('    }');
+      lines.push('    [Symbol.iterator]() {');
+      lines.push('      return this.__values[Symbol.iterator]();');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  if (typeof globalThis !== "undefined") globalThis.Enumerator = Enumerator;');
+      lines.push('  return Enumerator;');
+      lines.push('})();');
+    }
+
+    if (this.runtimeHelpers.has('file')) {
+      if (lines.length) lines.push('');
+      lines.push('const File = (() => {');
+      lines.push('  const existing = typeof globalThis !== "undefined" ? globalThis.File : undefined;');
+      lines.push('  if (existing && typeof existing.open === "function") return existing;');
+      const fileLines = [
+        '  const File = existing && typeof existing === "object" ? existing : {};',
+        '  File.open = (path, mode, block) => {',
+        '    const fileObject = {',
+        '      gets: () => ""',
+        '    };',
+        '    if (typeof block === "function") {',
+        '      const restore = typeof block.__rubyBind === "function" ? block.__rubyBind(fileObject) : null;',
+        '      try {',
+        '        return block.call(fileObject, fileObject);',
+        '      } finally {',
+        '        if (typeof restore === "function") restore();',
+        '      }',
+        '    }',
+        '    return fileObject;',
+        '  };',
+        '  if (typeof globalThis !== "undefined") globalThis.File = File;',
+        '  return File;'
+      ];
+      lines.push(...fileLines);
+      lines.push('})();');
+    }
+
+    if (this.runtimeHelpers.has('struct')) {
+      if (lines.length) lines.push('');
+      lines.push('const Struct = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && globalThis.Struct) return globalThis.Struct;');
+      lines.push('  class Struct {');
+      lines.push('    constructor(...members) {');
+      lines.push('      const names = members.map(member => {');
+      lines.push('        const stringName = typeof member === "string" ? member : String(member);');
+      lines.push('        return stringName.startsWith(":") ? stringName.slice(1) : stringName;');
+      lines.push('      });');
+      lines.push('      return class {');
+      lines.push('        constructor(...values) {');
+      lines.push('          names.forEach((name, index) => {');
+      lines.push('            this[name] = values[index];');
+      lines.push('          });');
+      lines.push('        }');
+      lines.push('      };');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  if (typeof globalThis !== "undefined") globalThis.Struct = Struct;');
+      lines.push('  return Struct;');
+      lines.push('})();');
+    }
+
+    if (this.runtimeHelpers.has('tracePoint')) {
+      if (lines.length) lines.push('');
+      lines.push('const TracePoint = (() => {');
+      lines.push('  if (typeof globalThis !== "undefined" && globalThis.TracePoint) return globalThis.TracePoint;');
+      lines.push('  class TracePoint {');
+      lines.push('    constructor(eventName, block) {');
+      lines.push('      this.eventName = eventName;');
+      lines.push('      this.block = typeof block === "function" ? block : null;');
+      lines.push('    }');
+      lines.push('    enable(block) {');
+      lines.push('      const fn = typeof block === "function" ? block : this.block;');
+      lines.push('      if (typeof fn === "function") {');
+      lines.push('        const restore = typeof fn.__rubyBind === "function" ? fn.__rubyBind(this) : null;');
+      lines.push('        try {');
+      lines.push('          return fn.call(this, this);');
+      lines.push('        } finally {');
+      lines.push('          if (typeof restore === "function") restore();');
+      lines.push('        }');
+      lines.push('      }');
+      lines.push('      return this;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  if (typeof globalThis !== "undefined") globalThis.TracePoint = TracePoint;');
+      lines.push('  return TracePoint;');
+      lines.push('})();');
     }
 
     if (this.runtimeHelpers.has('instanceEval')) {
@@ -394,43 +647,141 @@ class Emitter {
       lines.push('};');
     }
 
-    if (this.runtimeHelpers.has('implicitCall')) {
+    if (this.runtimeHelpers.has('rescueMatch')) {
       if (lines.length) lines.push('');
-      lines.push('const __rubyImplicitCall = (receiver, name) => {');
-      lines.push('  let target = receiver;');
-      lines.push('  if (target == null && typeof globalThis !== "undefined") {');
-      lines.push('    target = globalThis;');
+      lines.push('const __rubyRescueMatch = (error, matchers) => {');
+      lines.push('  if (!matchers || matchers.length === 0) return true;');
+      lines.push('  for (const matcher of matchers) {');
+      lines.push('    if (matcher == null) continue;');
+      lines.push('    if (typeof matcher === "function") {');
+      lines.push('      if (error instanceof matcher) return true;');
+      lines.push('      continue;');
+      lines.push('    }');
+      lines.push('    if (typeof matcher === "string") {');
+      lines.push('      if (error && error.name === matcher) return true;');
+      lines.push('      continue;');
+      lines.push('    }');
+      lines.push('    if (typeof matcher === "object" && typeof matcher.test === "function") {');
+      lines.push('      if (matcher.test(error)) return true;');
+      lines.push('      continue;');
+      lines.push('    }');
+      lines.push('    if (matcher === error) return true;');
+      lines.push('    if (String(matcher) === (error && error.name)) return true;');
       lines.push('  }');
-      lines.push('  if (target == null) return undefined;');
-      lines.push('  const member = target[name];');
-      lines.push('  if (typeof member === "function") {');
-      lines.push('    return member.call(target);');
-      lines.push('  }');
-      lines.push('  return member;');
+      lines.push('  return false;');
       lines.push('};');
     }
 
-    if (this.runtimeHelpers.has('hashPattern')) {
+    if (this.runtimeHelpers.has('includeMixin')) {
       if (lines.length) lines.push('');
-      lines.push('const __rubyMatchHashPattern = (value, descriptors) => {');
-      lines.push('  if (value == null || typeof value !== "object") return null;');
-      const descriptorLogic = [
-        '  const bindings = {};',
-        '  for (const descriptor of descriptors) {',
-        '    const { binding, keys } = descriptor;',
-        '    let matched = false;',
-        '    for (const key of keys) {',
-        '      if (key in value) {',
-        '        bindings[binding] = value[key];',
-        '        matched = true;',
-        '        break;',
-        '      }',
-        '    }',
-        '    if (!matched) return null;',
+      lines.push('const __rubyInclude = (klass, mixin) => {');
+      lines.push('  if (!klass || !mixin) return klass;');
+      const includeLogic = [
+        '  const target = klass && klass.prototype ? klass.prototype : klass;',
+        '  const descriptors = Object.getOwnPropertyDescriptors(mixin);',
+        '  for (const key of Reflect.ownKeys(descriptors)) {',
+        '    if (key === "constructor") continue;',
+        '    Object.defineProperty(target, key, descriptors[key]);',
         '  }',
-        '  return bindings;',
+        '  return klass;',
       ];
-      lines.push(...descriptorLogic);
+      lines.push(...includeLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('extendMixin')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyExtend = (klass, mixin) => {');
+      lines.push('  if (!klass || !mixin) return klass;');
+      const extendLogic = [
+        '  const descriptors = Object.getOwnPropertyDescriptors(mixin);',
+        '  for (const key of Reflect.ownKeys(descriptors)) {',
+        '    if (key === "constructor") continue;',
+        '    Object.defineProperty(klass, key, descriptors[key]);',
+        '  }',
+        '  return klass;',
+      ];
+      lines.push(...extendLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('prependMixin')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyPrepend = (klass, mixin) => {');
+      lines.push('  if (!klass || !mixin) return klass;');
+      const prependLogic = [
+        '  const target = klass && klass.prototype ? klass.prototype : klass;',
+        '  const descriptors = Object.getOwnPropertyDescriptors(mixin);',
+        '  for (const key of Reflect.ownKeys(descriptors)) {',
+        '    if (key === "constructor") continue;',
+        '    Object.defineProperty(target, key, descriptors[key]);',
+        '  }',
+        '  return klass;',
+      ];
+      lines.push(...prependLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('defineSingleton')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyDefineSingleton = (target, name, fn) => {');
+      lines.push('  if (target == null) return undefined;');
+      lines.push('  const key = name == null ? undefined : (typeof name === "symbol" ? name : String(name));');
+      const defineLogic = [
+        '  if (key === undefined) return undefined;',
+        '  const assignKey = key;',
+        '  const callable = typeof fn === "function" ? fn : (() => fn);',
+        '  target[assignKey] = callable;',
+        '  return callable;',
+      ];
+      lines.push(...defineLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('ensureError')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyEnsureError = (name) => {');
+      const ensureLogic = [
+        '  const errorName = typeof name === "string" ? name : String(name ?? "Error");',
+        '  if (typeof globalThis !== "undefined") {',
+        '    const existing = globalThis[errorName];',
+        '    if (typeof existing === "function") return existing;',
+        '    const ctor = class extends Error {',
+        '      constructor(message) {',
+        '        super(message);',
+        '        this.name = errorName;',
+        '      }',
+        '    };',
+        '    Object.defineProperty(ctor, "name", { value: errorName });',
+        '    globalThis[errorName] = ctor;',
+        '    return ctor;',
+        '  }',
+        '  return Error;',
+      ];
+      lines.push(...ensureLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('raise')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyRaise = (...args) => {');
+      const raiseLogic = [
+        '  if (!args.length) { throw new Error("RuntimeError"); }',
+        '  const first = args[0];',
+        '  if (first instanceof Error) { throw first; }',
+        '  if (typeof first === "function") {',
+        '    const message = args[1] !== undefined ? args[1] : undefined;',
+        '    throw new first(message);',
+        '  }',
+        '  if (typeof first === "string") {',
+        '    throw new Error(first);',
+        '  }',
+        '  if (first && typeof first === "object" && first.message !== undefined) {',
+        '    throw first;',
+        '  }',
+        '  throw new Error(String(first));',
+      ];
+      lines.push(...raiseLogic);
       lines.push('};');
     }
 
@@ -463,6 +814,8 @@ class Emitter {
         return this.indent() + 'break;';
       case 'UsingStatement':
         return this.emitUsingStatement(node, context);
+      case 'SingletonClassDeclaration':
+        return this.emitSingletonClassDeclaration(node, context);
       default:
         throw new Error(`Unsupported statement type: ${node.type}`);
     }
@@ -898,16 +1251,49 @@ class Emitter {
     switch (node.type) {
       case 'Identifier': {
         const name = node.name;
+        const resolved = this.resolveIdentifierName(name, context);
+        if (resolved !== name) {
+          return resolved;
+        }
         const declared = this.isIdentifierDeclared(name, context);
         if (!declared) {
+          if (name === '__FILE__') {
+            this.requireRuntime('fileConstant');
+            return '__FILE__';
+          }
+          if (name === 'binding') {
+            this.requireRuntime('bindingHelper');
+            return '__rubyBinding()';
+          }
+          const runtimeConstants = {
+            Thread: 'thread',
+            Fiber: 'fiber',
+            Enumerator: 'enumerator',
+            File: 'file',
+            Struct: 'struct',
+            TracePoint: 'tracePoint'
+          };
+          if (Object.prototype.hasOwnProperty.call(runtimeConstants, name)) {
+            this.requireRuntime(runtimeConstants[name]);
+            return name;
+          }
+          if (/^[A-Z]/.test(name) && this.isRubyExceptionConstant(name)) {
+            this.requireRuntime('ensureError');
+            return `__rubyEnsureError(${this.quote(name)})`;
+          }
           if (/^[A-Z]/.test(name)) {
             return name;
           }
-          this.requireRuntime('implicitCall');
-          const receiverExpr = context.implicitReceiverExpression ?? this.resolveImplicitCallReceiver(context);
-          return `__rubyImplicitCall(${receiverExpr}, ${this.quote(name)})`;
+          this.requireRuntime('send');
+          const receiver = this.resolveImplicitCallReceiver(context);
+          return `__rubySend(${receiver}, ${this.quote(name)}, [], undefined)`;
         }
-        return this.resolveIdentifierName(name, context);
+        if (!context.disableMethodLookup && this.isMethodName(name, context)) {
+          this.requireRuntime('send');
+          const receiver = this.resolveImplicitCallReceiver(context);
+          return `__rubySend(${receiver}, ${this.quote(name)}, [], undefined)`;
+        }
+        return resolved;
       }
       case 'InstanceVariable':
         return this.instanceVariableReference(node.name);
@@ -957,13 +1343,15 @@ class Emitter {
         return this.emitYieldExpression(node, context);
       case 'SuperCall':
         return this.emitSuperCall(node, context);
+      case 'BeginRescueExpression':
+        return this.emitBeginRescueExpression(node, context);
       default:
         throw new Error(`Unsupported expression type: ${node.type}`);
     }
   }
 
   emitAssignmentExpression(node, context) {
-    const left = this.emitExpression(node.left, context);
+    const left = this.emitAssignmentTarget(node.left, context);
     const right = this.emitExpression(node.right, context);
     if (node.operator === '=') {
       if (
@@ -1058,6 +1446,24 @@ class Emitter {
       return this.emitBlockGiven(context);
     }
 
+    const isMemberIdentifier = node.callee.type === 'MemberExpression' && !node.callee.computed && node.callee.property.type === 'Identifier';
+    const visibilityKeywords = new Set(['private', 'public', 'protected', 'module_function']);
+    if (calleeName && !isMemberIdentifier && visibilityKeywords.has(calleeName)) {
+      return '';
+    }
+
+    if (calleeName === 'include' && !isMemberIdentifier) {
+      return this.emitIncludeCall(node, context);
+    }
+
+    if (calleeName === 'extend' && !isMemberIdentifier) {
+      return this.emitExtendCall(node, context);
+    }
+
+    if (calleeName === 'prepend' && !isMemberIdentifier) {
+      return this.emitPrependCall(node, context);
+    }
+
     if (calleeName === 'define_method') {
       return this.emitDefineMethod(node, context);
     }
@@ -1099,6 +1505,12 @@ class Emitter {
     const callArgs = this.buildCallArguments(processedArgs, blockCode);
     const { finalArgCodes, argsArray, argsWithBlock, blockArg } = callArgs;
 
+    if (node.callee.type === 'Identifier' && calleeName === 'raise') {
+      this.requireRuntime('raise');
+      const raiseArgs = argsWithBlock.join(', ');
+      return raiseArgs.length ? `__rubyRaise(${raiseArgs})` : '__rubyRaise()';
+    }
+
     let memberProperty = null;
     let memberObjectCode = null;
     if (
@@ -1122,11 +1534,31 @@ class Emitter {
       ) {
         memberObjectCode = this.emitGetsCall();
       }
+    }
 
-    const callArgs = this.buildCallArguments(processedArgs, blockCode);
-    const { finalArgCodes, argsArray, argsWithBlock, blockArg } = callArgs;
+    if (memberProperty && memberObjectCode) {
+      if (memberProperty === 'public_send') {
+        const methodArg = node.arguments[0];
+        const methodNameLiteral = this.extractSymbolName(methodArg);
+        if (methodNameLiteral && node.arguments.length >= 2) {
+          const right = this.emitExpression(node.arguments[1], context);
+          const left = memberObjectCode;
+          const operatorMap = {
+            '==': '===',
+            '!=': '!=='
+          };
+          const jsOperator = operatorMap[methodNameLiteral] ?? methodNameLiteral;
+          if (['>', '>=', '<', '<=', '===', '!=='].includes(jsOperator)) {
+            return `${left} ${jsOperator} ${right}`;
+          }
+        }
+        this.requireRuntime('publicSend');
+        const argCodes = node.arguments.map(arg => this.emitExpression(arg, context));
+        const argsTail = argCodes.length ? `, ${argCodes.join(', ')}` : '';
+        return `__rubyPublicSend(${memberObjectCode}${argsTail})`;
+      }
 
-    if (memberProperty === 'strftime' && this.isTimeNowExpression(node.callee.object)) {
+      if (memberProperty === 'strftime' && this.isTimeNowExpression(node.callee.object)) {
         this.requireRuntime('strftime');
         const format = node.arguments[0] ? this.emitExpression(node.arguments[0], context) : 'undefined';
         return `__rubyStrftime(${format})`;
@@ -1224,27 +1656,15 @@ class Emitter {
         const execArgs = finalArgCodes.length ? `[${finalArgCodes.join(', ')}]` : '[]';
         return `__rubyInstanceExec(${memberObjectCode}, ${execArgs}, ${blockCode})`;
       }
-    }
 
-    if (memberProperty === 'public_send') {
-      const methodArg = node.arguments[0];
-      const methodNameLiteral = this.extractSymbolName(methodArg);
-      if (methodNameLiteral && node.arguments.length >= 2) {
-        const right = this.emitExpression(node.arguments[1], context);
-        const left = memberObjectCode;
-        const operatorMap = {
-          '==': '===',
-          '!=': '!=='
-        };
-        const jsOperator = operatorMap[methodNameLiteral] ?? methodNameLiteral;
-        if (['>', '>=', '<', '<=', '===', '!=='].includes(jsOperator)) {
-          return `${left} ${jsOperator} ${right}`;
-        }
+      if (memberProperty === 'define_singleton_method') {
+        return this.emitDefineSingletonMethodCall(node, context, {
+          objectCode: memberObjectCode,
+          inlineBlockNode,
+          blockCode,
+          processedArgs
+        });
       }
-      this.requireRuntime('publicSend');
-      const argCodes = node.arguments.map(arg => this.emitExpression(arg, context));
-      const argsTail = argCodes.length ? `, ${argCodes.join(', ')}` : '';
-      return `__rubyPublicSend(${memberObjectCode}${argsTail})`;
     }
 
     let isConstructorCall = false;
@@ -1264,8 +1684,10 @@ class Emitter {
       const scope = context.scopeNode ? this.scopeInfo.get(context.scopeNode) : null;
       const isDeclared = scope ? scope.declared.has(node.callee.name) : false;
       calleeCode = isDeclared ? node.callee.name : `this.${node.callee.name}`;
+    } else if (node.callee.type === 'Identifier') {
+      calleeCode = node.callee.name;
     } else {
-      calleeCode = this.emitExpression(node.callee, context);
+      calleeCode = this.emitExpression(node.callee, { ...context, disableMethodLookup: true });
     }
 
     const hasForwardingArg = processedArgs.some(entry => entry.node && entry.node.type === 'ForwardingArguments');
@@ -1326,10 +1748,13 @@ class Emitter {
         return callArgs.length ? `eval(${callArgs})` : 'eval()';
       }
       const handledNames = ['proc', 'instance_eval', 'instance_exec', 'block_given?', 'define_method', 'instance_variable_get', 'instance_variable_set', 'puts', 'print', 'gets'];
-      if (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name)) {
-        this.requireRuntime('send');
-        const implicitReceiver = this.resolveImplicitCallReceiver(context);
-        return `__rubySend(${implicitReceiver}, ${this.quote(node.callee.name)}, ${argsArray}, ${blockArg})`;
+      const needsImplicitSend = !this.isValidMethodName(node.callee.name) || (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name));
+      if (needsImplicitSend) {
+        if (context.forceImplicitIdentifiers || !this.isValidMethodName(node.callee.name)) {
+          this.requireRuntime('send');
+          const implicitReceiver = this.resolveImplicitCallReceiver(context);
+          return `__rubySend(${implicitReceiver}, ${this.quote(node.callee.name)}, ${argsArray}, ${blockArg})`;
+        }
       }
     }
 
@@ -1343,21 +1768,15 @@ class Emitter {
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
       node.callee.property.type === 'Identifier' &&
-      node.callee.property.name === 'each'
+      (node.callee.property.name === 'each' || node.callee.property.name === 'each_with_index')
     ) {
       const objectCode = this.emitExpression(node.callee.object, context);
-      return `${objectCode}.forEach(${blockCode})`;
-    }
-
-    if (
-      blockCode &&
-      node.callee.type === 'MemberExpression' &&
-      !node.callee.computed &&
-      node.callee.property.type === 'Identifier' &&
-      node.callee.property.name === 'each_with_index'
-    ) {
-      const objectCode = this.emitExpression(node.callee.object, context);
-      return `${objectCode}.forEach(${blockCode})`;
+      let iteratorBlock = blockCode;
+      if (inlineBlockNode) {
+        const functionBlock = this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true, asFunction: true });
+        iteratorBlock = this.convertFunctionToArrow(functionBlock);
+      }
+      return `${objectCode}.forEach(${iteratorBlock})`;
     }
 
     if (node.callee.type === 'OptionalMemberExpression') {
@@ -1610,6 +2029,109 @@ class Emitter {
     return `${target}[__rubyIvarName(${nameArg})] = ${valueArg}`;
   }
 
+  emitBeginRescueExpression(node, context = {}) {
+    const resultVar = this.generateUniqueId('__result');
+    const handledVar = this.generateUniqueId('__handled');
+    const errorVar = this.generateUniqueId('__error');
+
+    const lines = ['(() => {'];
+    this.indentLevel += 1;
+    lines.push(`${this.indent()}let ${resultVar};`);
+    lines.push(`${this.indent()}let ${handledVar} = false;`);
+
+    const bodyScope = this.scopeInfo.get(node.body);
+    const tryContext = {
+      ...context,
+      scopeNode: node.body,
+      scopeStack: [node.body, ...(context.scopeStack || [])],
+      inFunction: true,
+      allowImplicitReturn: true
+    };
+    const bodyCode = this.emitFunctionBody(node.body, tryContext, bodyScope);
+
+    lines.push(`${this.indent()}try {`);
+    this.indentLevel += 1;
+    lines.push(`${this.indent()}${resultVar} = (() => ${bodyCode}).call(this);`);
+
+    if (node.elseBody) {
+      const elseScope = this.scopeInfo.get(node.elseBody);
+      const elseContext = {
+        ...context,
+        scopeNode: node.elseBody,
+        scopeStack: [node.elseBody, ...(context.scopeStack || [])],
+        inFunction: true,
+        allowImplicitReturn: true
+      };
+      const elseCode = this.emitFunctionBody(node.elseBody, elseContext, elseScope);
+      lines.push(`${this.indent()}${resultVar} = (() => ${elseCode}).call(this);`);
+    }
+
+    this.indentLevel -= 1;
+    lines.push(`${this.indent()}} catch (${errorVar}) {`);
+    this.indentLevel += 1;
+
+    if (node.rescues && node.rescues.length) {
+      for (const clause of node.rescues) {
+        const condition = this.buildRescueCondition(clause, errorVar, context);
+        const clauseScope = this.scopeInfo.get(clause.body);
+        const clauseContext = {
+          ...context,
+          scopeNode: clause.body,
+          scopeStack: [clause.body, ...(context.scopeStack || [])],
+          inFunction: true,
+          allowImplicitReturn: true
+        };
+        const clauseBody = this.emitFunctionBody(clause.body, clauseContext, clauseScope);
+        lines.push(`${this.indent()}if (!${handledVar} && ${condition}) {`);
+        this.indentLevel += 1;
+        if (clause.binding) {
+          const bindingName = this.getRenamedName(clauseScope, clause.binding.name);
+          lines.push(`${this.indent()}const ${bindingName} = ${errorVar};`);
+        }
+        lines.push(`${this.indent()}${resultVar} = (() => ${clauseBody}).call(this);`);
+        lines.push(`${this.indent()}${handledVar} = true;`);
+        this.indentLevel -= 1;
+        lines.push(`${this.indent()}}`);
+      }
+    }
+
+    lines.push(`${this.indent()}if (!${handledVar}) throw ${errorVar};`);
+    this.indentLevel -= 1;
+
+    if (node.ensureBody) {
+      const ensureBlock = this.emitBlockStatement(node.ensureBody, {
+        ...context,
+        scopeStack: [node.ensureBody, ...(context.scopeStack || [])]
+      });
+      lines.push(`${this.indent()}} finally ${ensureBlock}`);
+    } else {
+      lines.push(`${this.indent()}}`);
+    }
+
+    lines.push(`${this.indent()}return ${resultVar};`);
+    this.indentLevel -= 1;
+    lines.push(`${this.indent()}})();`);
+    return lines.join('\n');
+  }
+
+  buildRescueCondition(clause, errorVar, context) {
+    if (!clause.exceptions || !clause.exceptions.length) {
+      return 'true';
+    }
+    this.requireRuntime('rescueMatch');
+    const expressions = clause.exceptions.map(exception => this.emitRescueMatcher(exception, context));
+    const matcherList = expressions.join(', ');
+    return `__rubyRescueMatch(${errorVar}, [${matcherList}])`;
+  }
+
+  emitRescueMatcher(node, context) {
+    if (!node) return 'undefined';
+    if (node.type === 'Identifier' && /^[A-Z]/.test(node.name)) {
+      return this.quote(node.name);
+    }
+    return this.emitExpression(node, context);
+  }
+
   instanceVariableReference(name) {
     return `this.${this.instanceVariableKey(name)}`;
   }
@@ -1698,7 +2220,10 @@ class Emitter {
       .replace(/\\A/g, '^')
       .replace(/\\z/g, '$');
     const pattern = JSON.stringify(source).slice(1, -1);
-    const filteredFlags = (node.flags || '').replace(/[^gimuy]/g, '');
+    let filteredFlags = (node.flags || '').replace(/[^gimuy]/g, '');
+    if (!filteredFlags.includes('u') && /\(\?<[^>]+>/.test(source)) {
+      filteredFlags += 'u';
+    }
     return `new RegExp("${pattern}", "${filteredFlags}")`;
   }
 
@@ -1711,6 +2236,8 @@ class Emitter {
     const parameterAnalysis = this.prepareMethodParameters(node.params, scope, { usesYield: !!node.usesYield });
     const paramsCode = parameterAnalysis.paramSignature.join(', ');
     let header;
+    const isTopLevelMethod = !context.inClass && !context.inModule && !context.singletonTarget && !context.currentClassName;
+
     if (context.inClass) {
       if (isConstructor) {
         header = `${indent}${methodName}(${paramsCode})`;
@@ -1737,7 +2264,8 @@ class Emitter {
         scopeStack: [node, ...(context.scopeStack || [])],
         inFunction: true,
         allowImplicitReturn,
-        methodType: isStatic ? 'static' : 'instance',
+        methodType: isStatic ? 'static' : (isTopLevelMethod ? 'instance' : 'instance'),
+        topLevelMethod: isTopLevelMethod,
         blockParamName: parameterAnalysis.blockParamName,
         optionalParams: parameterAnalysis.optionalParams,
         blockFromRest: parameterAnalysis.blockFromRest,
@@ -1747,7 +2275,11 @@ class Emitter {
       },
       scope
     );
-    return `${header} ${body}`;
+    let result = `${header} ${body}`;
+    if (isTopLevelMethod && this.isValidMethodName(methodName)) {
+      result += `\n${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${methodName}; }`;
+    }
+    return result;
   }
 
   emitFunctionBody(bodyNode, context, scope) {
@@ -2048,14 +2580,181 @@ class Emitter {
     return code;
   }
 
+  emitSingletonClassDeclaration(node, context = {}) {
+    const indent = this.indent();
+    let targetCode;
+    if (node.target && node.target.type === 'SelfExpression' && context.currentClassName) {
+      targetCode = context.currentClassName;
+    } else {
+      targetCode = this.emitExpression(node.target, context);
+    }
+    const targetVar = this.generateUniqueId('__singleton');
+    const lines = [`${indent}(() => {`];
+
+    this.indentLevel += 1;
+    const innerIndent = this.indent();
+    lines.push(`${innerIndent}const ${targetVar} = ${targetCode};`);
+    lines.push(`${innerIndent}if (${targetVar} == null) { return; }`);
+
+    const bodyContext = {
+      ...context,
+      singletonTarget: targetVar,
+      scopeStack: [node.body, ...(context.scopeStack || [])]
+    };
+
+    const bodyIndentLevel = this.indentLevel;
+    for (const statement of node.body.body) {
+      this.indentLevel = bodyIndentLevel;
+      if (statement.type === 'MethodDefinition') {
+        lines.push(this.emitSingletonMethodDefinition(statement, bodyContext));
+      } else {
+        const emitted = this.emitStatement(statement, bodyContext);
+        if (emitted) lines.push(emitted);
+      }
+    }
+
+    this.indentLevel = bodyIndentLevel - 1;
+    lines.push(`${this.indent()}})();`);
+    return lines.join('\n');
+  }
+
+  emitSingletonMethodDefinition(node, context = {}) {
+    const scope = this.scopeInfo.get(node);
+    const indent = this.indent();
+    const methodName = node.id.name;
+    const parameterAnalysis = this.prepareMethodParameters(node.params, scope, { usesYield: !!node.usesYield });
+    const paramsCode = parameterAnalysis.paramSignature.join(', ');
+
+    const fnContext = {
+      ...context,
+      scopeNode: node,
+      scopeStack: [node, ...(context.scopeStack || [])],
+      inFunction: true,
+      allowImplicitReturn: true,
+      methodType: 'static',
+      blockParamName: parameterAnalysis.blockParamName,
+      optionalParams: parameterAnalysis.optionalParams,
+      blockFromRest: parameterAnalysis.blockFromRest,
+      currentMethodName: methodName,
+      ...(parameterAnalysis.genericInfo ? { genericArgsInfo: parameterAnalysis.genericInfo } : {})
+    };
+
+    const bodyCode = this.emitFunctionBody(node.body, fnContext, scope);
+    const accessor = this.isValidMethodName(methodName)
+      ? `${context.singletonTarget}.${methodName}`
+      : `${context.singletonTarget}[${this.quote(methodName)}]`;
+
+    return `${indent}${accessor} = function(${paramsCode}) ${bodyCode};`;
+  }
+
+  emitModuleMethodDefinition(node, context = {}) {
+    const scope = this.scopeInfo.get(node);
+    const moduleName = context.currentModuleName;
+    const indent = this.indent();
+    const methodName = node.id.name;
+    const parameterAnalysis = this.prepareMethodParameters(node.params, scope, { usesYield: !!node.usesYield });
+    const paramsCode = parameterAnalysis.paramSignature.join(', ');
+
+    const fnContext = {
+      ...context,
+      scopeNode: node,
+      scopeStack: [node, ...(context.scopeStack || [])],
+      inFunction: true,
+      allowImplicitReturn: true,
+      methodType: 'module',
+      blockParamName: parameterAnalysis.blockParamName,
+      optionalParams: parameterAnalysis.optionalParams,
+      blockFromRest: parameterAnalysis.blockFromRest,
+      currentMethodName: methodName,
+      ...(parameterAnalysis.genericInfo ? { genericArgsInfo: parameterAnalysis.genericInfo } : {})
+    };
+
+    const bodyCode = this.emitFunctionBody(node.body, fnContext, scope);
+    const accessor = this.isValidMethodName(methodName)
+      ? `${moduleName}.${methodName}`
+      : `${moduleName}[${this.quote(methodName)}]`;
+
+    return `${indent}${accessor} = function(${paramsCode}) ${bodyCode};`;
+  }
+
+  emitDefineSingletonMethodCall(node, context, info) {
+    const { objectCode, inlineBlockNode, blockCode, processedArgs } = info;
+    this.requireRuntime('defineSingleton');
+    const nameArg = node.arguments[0];
+    const nameExpr = this.resolveDefineSingletonName(nameArg, context);
+
+    let fnExpr = null;
+    if (inlineBlockNode) {
+      fnExpr = this.emitBlockFunction(inlineBlockNode, context, { forceImplicitIdentifiers: true, asFunction: true });
+    } else if (blockCode) {
+      fnExpr = blockCode;
+    } else if (node.arguments[1]) {
+      fnExpr = this.emitExpression(node.arguments[1], context);
+    } else if (processedArgs.length) {
+      fnExpr = processedArgs[processedArgs.length - 1].code;
+    }
+
+    if (!fnExpr) {
+      fnExpr = 'undefined';
+    }
+
+    const target = objectCode ?? this.emitExpression(node.callee.object, context);
+    return `__rubyDefineSingleton(${target}, ${nameExpr}, ${fnExpr})`;
+  }
+
+  resolveDefineSingletonName(node, context) {
+    if (!node) return 'undefined';
+    if (node.type === 'SymbolLiteral') {
+      return this.quote(node.name);
+    }
+    if (node.type === 'StringLiteral') {
+      return this.quote(node.value);
+    }
+    return this.emitExpression(node, context);
+  }
+
+  emitIncludeCall(node, context = {}) {
+    if (!node.arguments.length) return '';
+    const mixin = this.emitExpression(node.arguments[0], context);
+    const target = context.currentClassName || this.resolveImplicitCallReceiver(context);
+    this.requireRuntime('includeMixin');
+    return `__rubyInclude(${target}, ${mixin})`;
+  }
+
+  emitExtendCall(node, context = {}) {
+    if (!node.arguments.length) return '';
+    const mixin = this.emitExpression(node.arguments[0], context);
+    const target = context.currentClassName || this.resolveImplicitCallReceiver(context);
+    this.requireRuntime('extendMixin');
+    return `__rubyExtend(${target}, ${mixin})`;
+  }
+
+  emitPrependCall(node, context = {}) {
+    if (!node.arguments.length) return '';
+    const mixin = this.emitExpression(node.arguments[0], context);
+    const target = context.currentClassName || this.resolveImplicitCallReceiver(context);
+    this.requireRuntime('prependMixin');
+    return `__rubyPrepend(${target}, ${mixin})`;
+  }
+
   emitModuleDeclaration(node, context = {}) {
     const indent = this.indent();
-    const lines = [`${indent}const ${node.id.name} = {};`];
-    const moduleContext = { ...context, inModule: true, currentModuleName: node.id.name };
+    const moduleName = node.id.name;
+    const lines = [`${indent}const ${moduleName} = {};`];
+    const moduleContext = { ...context, inModule: true, currentModuleName: moduleName };
+
+    this.indentLevel += 1;
     for (const statement of node.body.body) {
-      const stmt = this.emitStatement(statement, moduleContext);
+      let stmt;
+      if (statement.type === 'MethodDefinition') {
+        stmt = this.emitModuleMethodDefinition(statement, moduleContext);
+      } else {
+        stmt = this.emitStatement(statement, moduleContext);
+      }
       if (stmt) lines.push(stmt);
     }
+    this.indentLevel -= 1;
+
     return lines.join('\n');
   }
 
@@ -2136,57 +2835,40 @@ class Emitter {
   emitCaseStatement(node, context = {}) {
     if (!node.clauses.length) return '';
     const indent = this.indent();
-    const testExpression = node.test ? this.emitExpression(node.test, context) : null;
     const lines = [];
+    const preludeLines = [];
+    const clauseInfos = [];
 
     const hasPatternClause = node.clauses.some(clause => clause.type === 'PatternClause');
-    let valueReference = testExpression;
+    let valueReference = node.test ? this.emitCaseTestExpression(node.test, context) : null;
 
-    if (hasPatternClause && testExpression) {
+    if (hasPatternClause && valueReference) {
       const caseVar = this.generateUniqueId('__case');
-      lines.push(`${indent}const ${caseVar} = ${testExpression};`);
+      preludeLines.push(`${indent}const ${caseVar} = ${valueReference};`);
       valueReference = caseVar;
     }
 
-    const patternMatchVars = new Map();
     for (const clause of node.clauses) {
       if (clause.type === 'PatternClause') {
-        patternMatchVars.set(clause, this.generateUniqueId('__pattern'));
+        const matcher = this.buildPatternMatcher(clause, valueReference ?? 'undefined', context, indent);
+        preludeLines.push(...matcher.setupLines);
+        const block = this.prependBlockLines(
+          this.emitBlockStatement(clause.body, context),
+          matcher.bindingLines
+        );
+        clauseInfos.push({ condition: matcher.condition, block });
+      } else {
+        const condition = this.emitCaseCondition(valueReference, clause, context);
+        const block = this.emitBlockStatement(clause.body, context);
+        clauseInfos.push({ condition, block });
       }
     }
 
-    if (patternMatchVars.size) {
-      for (const matchVar of patternMatchVars.values()) {
-        lines.push(`${indent}let ${matchVar};`);
-      }
-    }
+    lines.push(...preludeLines);
 
-    node.clauses.forEach((clause, index) => {
-      let condition;
-      let block;
-
-      if (clause.type === 'PatternClause') {
-        this.requireRuntime('hashPattern');
-        const matchVar = patternMatchVars.get(clause);
-        const descriptors = this.buildHashPatternDescriptors(clause.pattern, context);
-        const descriptorCode = `[${descriptors.map(desc => `{ binding: ${this.quote(desc.binding)}, keys: [${desc.keys.map(key => this.quote(key)).join(', ')}] }`).join(', ')}]`;
-        const target = valueReference || 'undefined';
-        condition = `(${matchVar} = __rubyMatchHashPattern(${target}, ${descriptorCode}))`;
-
-        const blockString = this.emitBlockStatement(clause.body, context);
-        const innerIndent = indent + ' '.repeat(this.indentSize);
-        const bindingLines = descriptors.map(desc => `${innerIndent}const ${desc.binding} = ${matchVar}[${this.quote(desc.binding)}];`);
-        block = this.prependBlockLines(blockString, bindingLines);
-      } else {
-        condition = this.emitCaseCondition(valueReference, clause, context);
-        block = this.emitBlockStatement(clause.body, context);
-      }
-
-      if (index === 0) {
-        lines.push(`${indent}if (${condition}) ${block}`);
-      } else {
-        lines.push(`${indent}else if (${condition}) ${block}`);
-      }
+    clauseInfos.forEach((info, index) => {
+      const keyword = index === 0 ? 'if' : 'else if';
+      lines.push(`${indent}${keyword} (${info.condition}) ${info.block}`);
     });
 
     if (node.alternate) {
@@ -2205,26 +2887,203 @@ class Emitter {
     return expressions.join(' || ');
   }
 
-  buildHashPatternDescriptors(pattern, context = {}) {
-    if (!pattern || pattern.type !== 'HashPattern') return [];
-    return pattern.entries.map(entry => ({
-      binding: this.resolveIdentifierName(entry.binding.name, context),
-      keys: this.resolvePatternKeys(entry.key)
-    }));
+  emitCaseTestExpression(node, context) {
+    if (!node) return null;
+    if (node.type === 'Identifier') {
+      return node.name;
+    }
+    return this.emitExpression(node, context);
   }
 
-  resolvePatternKeys(keyNode) {
-    if (!keyNode) return [''];
-    switch (keyNode.type) {
-      case 'SymbolLiteral':
-        return [keyNode.name];
-      case 'Identifier':
-        return [keyNode.name];
-      case 'StringLiteral':
-        return [keyNode.value];
-      default:
-        return [this.emitExpression(keyNode)];
+  buildPatternMatcher(clause, valueExpression, context, baseIndent) {
+    const matchVar = this.generateUniqueId('__pattern');
+    const step = ' '.repeat(this.indentSize);
+    const indent1 = baseIndent + step;
+    const indent2 = indent1 + step;
+    const bindingsVar = this.generateUniqueId('__bindings');
+    const clauseScope = this.scopeInfo.get(clause.body);
+    const guardContext = {
+      ...context,
+      scopeStack: [clause.body, ...(context.scopeStack || [])]
+    };
+
+    const patternState = {
+      baseIndent,
+      indent1,
+      indent2,
+      indentStep: step,
+      bindingsVar,
+      clauseScope,
+      guardContext,
+      bindingInfos: [],
+      context,
+      lines: []
+    };
+
+    patternState.lines.push(`${indent1}if (__value == null) return null;`);
+    patternState.lines.push(`${indent1}const ${bindingsVar} = {};`);
+
+    const success = this.appendPattern(clause.pattern, '__value', patternState);
+
+    if (!success) {
+      return {
+        setupLines: [`${baseIndent}const ${matchVar} = null;`],
+        condition: matchVar,
+        bindingLines: []
+      };
     }
+
+    if (clause.guard) {
+      const guardCode = this.emitExpression(clause.guard.condition, guardContext);
+      if (clause.guard.negated) {
+        patternState.lines.push(`${indent1}if (${guardCode}) return null;`);
+      } else {
+        patternState.lines.push(`${indent1}if (!(${guardCode})) return null;`);
+      }
+    }
+
+    patternState.lines.push(`${indent1}return ${bindingsVar};`);
+
+    const setupLines = [
+      `${baseIndent}const ${matchVar} = (() => {`,
+      `${indent1}const __value = ${valueExpression};`,
+      ...patternState.lines,
+      `${baseIndent}})();`
+    ];
+
+    const bindingIndent = baseIndent + step;
+    const bindingLines = patternState.bindingInfos.map(info => `${bindingIndent}const ${info.safeName} = ${matchVar}.${info.safeName};`);
+
+    return { setupLines, condition: matchVar, bindingLines };
+  }
+
+  appendPattern(pattern, valueVar, state) {
+    if (!pattern || typeof pattern !== 'object') return false;
+    switch (pattern.type) {
+      case 'HashPattern':
+        return this.appendHashPattern(pattern, valueVar, state);
+      case 'ArrayPattern':
+        return this.appendArrayPattern(pattern, valueVar, state);
+      case 'Identifier': {
+        const safeName = this.getRenamedName(state.clauseScope, pattern.name);
+        state.lines.push(`${state.indent1}const ${safeName} = ${valueVar};`);
+        state.lines.push(`${state.indent1}${state.bindingsVar}.${safeName} = ${safeName};`);
+        state.bindingInfos.push({ safeName });
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  appendHashPattern(pattern, valueVar, state) {
+    state.lines.push(`${state.indent1}if (typeof ${valueVar} !== 'object') return null;`);
+    for (const entry of pattern.entries) {
+      const accessVar = this.generateUniqueId('__prop');
+      const foundVar = this.generateUniqueId('__found');
+      const keys = this.resolvePatternKeyExpressions(entry.key, state.context);
+      state.lines.push(`${state.indent1}let ${foundVar} = false;`);
+      state.lines.push(`${state.indent1}let ${accessVar};`);
+      for (const expr of keys) {
+        state.lines.push(`${state.indent1}if (!${foundVar} && Object.prototype.hasOwnProperty.call(${valueVar}, ${expr})) {`);
+        state.lines.push(`${state.indent2}${foundVar} = true;`);
+        state.lines.push(`${state.indent2}${accessVar} = ${valueVar}[${expr}];`);
+        state.lines.push(`${state.indent1}}`);
+      }
+      state.lines.push(`${state.indent1}if (!${foundVar}) return null;`);
+
+      if (entry.value) {
+        if (entry.value.type === 'PinExpression') {
+          const pinExpr = this.emitExpression(entry.value.expression, state.context);
+          state.lines.push(`${state.indent1}if (${accessVar} !== ${pinExpr}) return null;`);
+        } else {
+          return false;
+        }
+      }
+
+      if (entry.binding && entry.binding.name) {
+        const safeName = this.getRenamedName(state.clauseScope, entry.binding.name);
+        state.lines.push(`${state.indent1}const ${safeName} = ${accessVar};`);
+        state.lines.push(`${state.indent1}${state.bindingsVar}.${safeName} = ${safeName};`);
+        state.bindingInfos.push({ safeName });
+      }
+    }
+    return true;
+  }
+
+  appendArrayPattern(pattern, valueVar, state) {
+    state.lines.push(`${state.indent1}if (!Array.isArray(${valueVar})) return null;`);
+    const required = pattern.elements.length;
+    if (pattern.rest) {
+      state.lines.push(`${state.indent1}if (${valueVar}.length < ${required}) return null;`);
+    } else {
+      state.lines.push(`${state.indent1}if (${valueVar}.length !== ${required}) return null;`);
+    }
+
+    for (let index = 0; index < pattern.elements.length; index += 1) {
+      const element = pattern.elements[index];
+      const elementVar = this.generateUniqueId('__elem');
+      state.lines.push(`${state.indent1}const ${elementVar} = ${valueVar}[${index}];`);
+      if (!element) continue;
+      if (element.type === 'Identifier') {
+        const safeName = this.getRenamedName(state.clauseScope, element.name);
+        state.lines.push(`${state.indent1}const ${safeName} = ${elementVar};`);
+        state.lines.push(`${state.indent1}${state.bindingsVar}.${safeName} = ${safeName};`);
+        state.bindingInfos.push({ safeName });
+        continue;
+      }
+      if (element.type === 'PinExpression') {
+        const pinExpr = this.emitExpression(element.expression, state.context);
+        state.lines.push(`${state.indent1}if (${elementVar} !== ${pinExpr}) return null;`);
+        continue;
+      }
+      return false;
+    }
+
+    if (pattern.rest && pattern.rest.name) {
+      const startIndex = pattern.elements.length;
+      const safeName = this.getRenamedName(state.clauseScope, pattern.rest.name);
+      state.lines.push(`${state.indent1}const ${safeName} = ${valueVar}.slice(${startIndex});`);
+      state.lines.push(`${state.indent1}${state.bindingsVar}.${safeName} = ${safeName};`);
+      state.bindingInfos.push({ safeName });
+    }
+
+    return true;
+  }
+
+  resolvePatternKeyExpressions(keyNode, context) {
+    if (!keyNode) return ['undefined'];
+    switch (keyNode.type) {
+      case 'SymbolLiteral': {
+        const literal = this.quote(keyNode.name);
+        const symbolExpr = `Symbol.for(${literal})`;
+        return Array.from(new Set([literal, symbolExpr]));
+      }
+      case 'Identifier': {
+        const literal = this.quote(keyNode.name);
+        const symbolExpr = `Symbol.for(${literal})`;
+        return Array.from(new Set([literal, symbolExpr]));
+      }
+      case 'StringLiteral':
+        return [this.quote(keyNode.value)];
+      default:
+        return [this.emitExpression(keyNode, context)];
+    }
+  }
+
+  convertFunctionToArrow(fnSource) {
+    if (typeof fnSource !== 'string') return fnSource;
+    if (!/^function\s*\(/.test(fnSource)) return fnSource;
+    const paramsConverted = fnSource.replace(/^function\s*\(/, '(');
+    return paramsConverted.replace(/\)\s*{/, ') => {');
+  }
+
+  isRubyExceptionConstant(name) {
+    const known = new Set([
+      'ArgumentError', 'RuntimeError', 'StandardError', 'TypeError', 'NameError', 'NoMethodError',
+      'IndexError', 'KeyError', 'RangeError', 'IOError', 'EOFError', 'SystemCallError'
+    ]);
+    return known.has(name);
   }
 
   prependBlockLines(block, lines) {
@@ -2243,10 +3102,27 @@ class Emitter {
             scope.declared.add(entry.binding.name);
             this.registerReservedName(scope, entry.binding.name);
           }
-          if (entry.value) this.collectNode(entry.value, scope);
+          if (entry.value) this.collectPattern(entry.value, scope);
         }
         break;
+      case 'ArrayPattern':
+        for (const element of pattern.elements) {
+          this.collectPattern(element, scope);
+        }
+        if (pattern.rest && pattern.rest.name) {
+          scope.declared.add(pattern.rest.name);
+          this.registerReservedName(scope, pattern.rest.name);
+        }
+        break;
+      case 'PinExpression':
+        this.collectNode(pattern.expression, scope);
+        break;
+      case 'Identifier':
+        scope.declared.add(pattern.name);
+        this.registerReservedName(scope, pattern.name);
+        break;
       default:
+        this.collectNode(pattern, scope);
         break;
     }
   }
@@ -2360,6 +3236,34 @@ class Emitter {
     scope.renamed.set(name, candidate);
   }
 
+  reserveName(scope, name) {
+    if (!scope || !name) return;
+    if (!scope.renamed) scope.renamed = new Map();
+    if (scope.renamed.has(name)) return scope.renamed.get(name);
+    const taken = new Set([
+      ...(scope.declared ? scope.declared : []),
+      ...(scope.hoisted ? scope.hoisted : []),
+      ...(scope.renamed ? scope.renamed.values() : [])
+    ]);
+    let index = 0;
+    let candidate;
+    do {
+      candidate = index === 0 ? `__${name}` : `__${name}${index}`;
+      index += 1;
+    } while (taken.has(candidate) || this.isReservedIdentifier(candidate));
+
+    scope.renamed.set(name, candidate);
+    if (scope.declared && scope.declared.has(name)) {
+      scope.declared.delete(name);
+      scope.declared.add(candidate);
+    }
+    if (scope.hoisted && scope.hoisted.has(name)) {
+      scope.hoisted.delete(name);
+      scope.hoisted.add(candidate);
+    }
+    return candidate;
+  }
+
   getRenamedName(scope, name) {
     if (!scope || !name) return name;
     if (scope.renamed && scope.renamed.has(name)) {
@@ -2386,9 +3290,33 @@ class Emitter {
     return false;
   }
 
+  isMethodName(name, context = {}) {
+    if (!name) return false;
+    const stack = [];
+    if (context.scopeStack && context.scopeStack.length) {
+      stack.push(...context.scopeStack);
+    }
+    if (context.scopeNode && !stack.includes(context.scopeNode)) {
+      stack.push(context.scopeNode);
+    }
+    for (const scopeNode of stack) {
+      const scope = this.scopeInfo.get(scopeNode);
+      if (scope && scope.methods && scope.methods.has(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   resolveImplicitCallReceiver(context = {}) {
     if (context && typeof context.implicitReceiver === 'string') {
       return context.implicitReceiver;
+    }
+    if (context && context.topLevelMethod) {
+      return 'globalThis';
+    }
+    if (context && context.scopeNode && context.scopeNode.type === 'Program') {
+      return 'globalThis';
     }
     if (context.methodType === 'static' && context.currentClassName) {
       return context.currentClassName;
@@ -2434,14 +3362,29 @@ class Emitter {
   collectProgram(node) {
     if (this.scopeInfo.has(node)) return;
     const scope = this.createScope();
+    scope.kind = 'program';
     this.scopeInfo.set(node, scope);
     for (const statement of node.body) {
       this.collectNode(statement, scope);
     }
   }
 
-  collectMethod(node) {
+  collectMethod(node, parentScope = null) {
     if (this.scopeInfo.has(node)) return;
+    if (parentScope && node.id && node.id.name && this.isValidMethodName(node.id.name)) {
+      const name = node.id.name;
+      if ((parentScope.declared && parentScope.declared.has(name)) || (parentScope.hoisted && parentScope.hoisted.has(name))) {
+        this.reserveName(parentScope, name);
+      }
+      if (parentScope.kind === 'program') {
+        parentScope.declared.add(name);
+      }
+      if (parentScope.methods) {
+        parentScope.methods.add(name);
+      }
+    } else if (parentScope && parentScope.methods && node.id && node.id.name) {
+      parentScope.methods.add(node.id.name);
+    }
     const scope = this.createScope();
     for (const param of node.params) {
       if (!param) continue;
@@ -2464,7 +3407,7 @@ class Emitter {
   }
 
   createScope() {
-    return { declared: new Set(), hoisted: new Set(), renamed: new Map() };
+    return { declared: new Set(), hoisted: new Set(), renamed: new Map(), methods: new Set() };
   }
 
   collectNode(node, scope) {
@@ -2551,10 +3494,31 @@ class Emitter {
         if (node.alternate) this.collectNode(node.alternate, scope);
         break;
       case 'MethodDefinition':
-        this.collectMethod(node);
+        this.collectMethod(node, scope);
         break;
       case 'LambdaExpression':
         this.collectLambda(node);
+        break;
+      case 'SingletonClassDeclaration':
+        this.collectNode(node.target, scope);
+        this.collectNode(node.body, scope);
+        break;
+      case 'BeginRescueExpression':
+        this.collectNode(node.body, scope);
+        if (node.rescues) {
+          for (const clause of node.rescues) {
+            if (clause.binding && clause.binding.name) {
+              scope.declared.add(clause.binding.name);
+              this.registerReservedName(scope, clause.binding.name);
+            }
+            for (const ex of clause.exceptions || []) {
+              this.collectNode(ex, scope);
+            }
+            this.collectNode(clause.body, scope);
+          }
+        }
+        if (node.elseBody) this.collectNode(node.elseBody, scope);
+        if (node.ensureBody) this.collectNode(node.ensureBody, scope);
         break;
       case 'ToProcExpression':
         this.collectNode(node.argument, scope);
@@ -2566,7 +3530,15 @@ class Emitter {
         for (const argument of node.arguments) this.collectNode(argument, scope);
         break;
       case 'ClassDeclaration':
-        this.collectNode(node.body, scope);
+        if (!this.scopeInfo.has(node.body)) {
+          const classScope = this.createScope();
+          classScope.kind = 'class';
+          this.scopeInfo.set(node.body, classScope);
+          this.collectNode(node.body, classScope);
+        } else {
+          const classScope = this.scopeInfo.get(node.body);
+          this.collectNode(node.body, classScope);
+        }
         break;
       case 'ModuleDeclaration':
         if (node.body) this.collectNode(node.body, scope);
@@ -2609,11 +3581,17 @@ class Emitter {
   recordAssignment(target, scope) {
     if (!target || !scope) return;
     if (target.type === 'Identifier') {
-      if (!scope.declared.has(target.name)) {
-        scope.declared.add(target.name);
-        scope.hoisted.add(target.name);
+      const original = target.name;
+      if (!scope.renamed || !scope.renamed.has(original)) {
+        this.registerReservedName(scope, original);
       }
-      this.registerReservedName(scope, target.name);
+      const mapped = scope.renamed && scope.renamed.has(original)
+        ? scope.renamed.get(original)
+        : original;
+      if (!scope.declared.has(mapped)) {
+        scope.declared.add(mapped);
+        scope.hoisted.add(mapped);
+      }
     } else if (target.type === 'MemberExpression') {
       this.collectNode(target.object, scope);
       if (target.computed) this.collectNode(target.property, scope);
