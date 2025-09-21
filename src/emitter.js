@@ -186,12 +186,95 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('swapcase')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubySwapcase = (value) => {');
+      lines.push('  const str = String(value ?? "");');
+      lines.push('  let result = "";');
+      lines.push('  for (let index = 0; index < str.length; index += 1) {');
+      lines.push('    const ch = str[index];');
+      lines.push('    const upper = ch.toUpperCase();');
+      lines.push('    const lower = ch.toLowerCase();');
+      lines.push('    if (ch === upper && ch !== lower) {');
+      lines.push('      result += lower;');
+      lines.push('    } else if (ch === lower && ch !== upper) {');
+      lines.push('      result += upper;');
+      lines.push('    } else {');
+      lines.push('      result += ch;');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('capitalizeBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyCapitalizeBang = (value) => __rubyCapitalize(value);');
+    }
+
+    if (this.runtimeHelpers.has('reverseBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyReverseBang = (value) => {');
+      lines.push('  const str = String(value ?? "");');
+      lines.push('  return str.split("").reverse().join("");');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('upcaseBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyUpcaseBang = (value) => String(value ?? "").toUpperCase();');
+    }
+
+    if (this.runtimeHelpers.has('downcaseBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyDowncaseBang = (value) => String(value ?? "").toLowerCase();');
+    }
+
+    if (this.runtimeHelpers.has('collectionInclude')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyCollectionInclude = (collection, item) => {');
+      lines.push('  if (Array.isArray(collection)) {');
+      lines.push('    for (let index = 0; index < collection.length; index += 1) {');
+      lines.push('      if (collection[index] === item) return true;');
+      lines.push('    }');
+      lines.push('    return false;');
+      lines.push('  }');
+      lines.push('  if (collection == null) return false;');
+      lines.push('  const str = String(collection);');
+      lines.push('  return str.includes(String(item));');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('minus')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyMinus = (left, right) => {');
+      lines.push('  if (Array.isArray(left)) {');
+      lines.push('    const rightValues = Array.isArray(right) ? right : [right];');
+      lines.push('    return left.filter((item) => rightValues.every((other) => other !== item));');
+      lines.push('  }');
+      lines.push('  const leftNumber = Number(left);');
+      lines.push('  const rightNumber = Number(right);');
+      lines.push('  if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {');
+      lines.push('    return leftNumber - rightNumber;');
+      lines.push('  }');
+      lines.push('  return left - right;');
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('symbolProc')) {
       if (lines.length) lines.push('');
       lines.push('const __rubySymbolProc = (name) => {');
       lines.push('  switch (name) {');
       lines.push('    case "capitalize":');
       lines.push('      return (value) => __rubyCapitalize(value);');
+      lines.push('    case "swapcase":');
+      lines.push('      return (value) => __rubySwapcase(value);');
+      lines.push('    case "upcase":');
+      lines.push('      return (value) => String(value ?? "").toUpperCase();');
+      lines.push('    case "downcase":');
+      lines.push('      return (value) => String(value ?? "").toLowerCase();');
+      lines.push('    case "reverse":');
+      lines.push('      return (value) => String(value ?? "").split("").reverse().join("");');
       lines.push('    default:');
       lines.push('      return (value, ...rest) => {');
       lines.push('        if (value == null) return value;');
@@ -1537,6 +1620,22 @@ class Emitter {
     }
 
     if (memberProperty && memberObjectCode) {
+      const bangInfo = this.getStringBangInfo(memberProperty);
+      if (
+        bangInfo &&
+        node.arguments.length === 0 &&
+        node.callee.object &&
+        node.callee.object.type === 'Identifier'
+      ) {
+        this.requireRuntime(bangInfo.runtime);
+        if (bangInfo.dependencies) {
+          for (const dep of bangInfo.dependencies) {
+            this.requireRuntime(dep);
+          }
+        }
+        return `(() => { ${memberObjectCode} = ${bangInfo.helper}(${memberObjectCode}); return ${memberObjectCode}; })()`;
+      }
+
       if (memberProperty === 'public_send') {
         const methodArg = node.arguments[0];
         const methodNameLiteral = this.extractSymbolName(methodArg);
@@ -1582,6 +1681,22 @@ class Emitter {
       if (memberProperty === 'reverse' && node.arguments.length === 0) {
         this.requireRuntime('reverseString');
         return `__rubyReverse(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'capitalize' && node.arguments.length === 0) {
+        this.requireRuntime('capitalize');
+        return `__rubyCapitalize(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'swapcase' && node.arguments.length === 0) {
+        this.requireRuntime('swapcase');
+        return `__rubySwapcase(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'include?' && node.arguments.length === 1) {
+        this.requireRuntime('collectionInclude');
+        const searchValue = this.emitExpression(node.arguments[0], context);
+        return `__rubyCollectionInclude(${memberObjectCode}, ${searchValue})`;
       }
 
       if (memberProperty === 'to_i' && node.arguments.length === 0) {
@@ -1881,6 +1996,9 @@ class Emitter {
       this.requireRuntime('symbolProc');
       if (name === 'capitalize') {
         this.requireRuntime('capitalize');
+      }
+      if (name === 'swapcase') {
+        this.requireRuntime('swapcase');
       }
       return `__rubySymbolProc(${this.quote(name)})`;
     }
@@ -2190,6 +2308,12 @@ class Emitter {
       const left = this.emitExpression(node.left, context);
       const right = this.emitExpression(node.right, context);
       return `${left}.push(${right})`;
+    }
+    if (node.operator === '-') {
+      this.requireRuntime('minus');
+      const leftExpr = this.emitExpression(node.left, context);
+      const rightExpr = this.emitExpression(node.right, context);
+      return `__rubyMinus(${leftExpr}, ${rightExpr})`;
     }
     const left = node.left.type === 'LogicalExpression'
       ? `(${this.emitExpression(node.left, context)})`
@@ -3197,6 +3321,16 @@ class Emitter {
     if (op === '==') return '===';
     if (op === '!=') return '!==';
     return op;
+  }
+
+  getStringBangInfo(name) {
+    const mapping = {
+      'capitalize!': { helper: '__rubyCapitalizeBang', runtime: 'capitalizeBang', dependencies: ['capitalize'] },
+      'reverse!': { helper: '__rubyReverseBang', runtime: 'reverseBang' },
+      'upcase!': { helper: '__rubyUpcaseBang', runtime: 'upcaseBang' },
+      'downcase!': { helper: '__rubyDowncaseBang', runtime: 'downcaseBang' }
+    };
+    return mapping[name] || null;
   }
 
   generateUniqueId(prefix = '__temp') {

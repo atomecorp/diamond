@@ -1,4 +1,52 @@
 
+
+a= 'hello world'
+a.capitalize!
+puts a
+a.reverse!
+puts a
+a.upcase!
+puts a
+a.downcase!
+puts a
+b= a.swapcase
+puts b
+
+# new test 1
+puts "----- new test 1 -----"
+# Ruby sait ce que vous
+# voulez vraiment faire,
+# même avec des tableaux.
+villes   = %w[ Londres
+               Oslo
+               Paris
+               Amsterdam
+               Berlin ]
+visitees = %w[Berlin Oslo]
+
+restantes = villes - visitees
+puts "Encore à visiter :"
+puts restantes
+
+
+#new test 2
+     
+class Majordome
+  def initialize(nom)
+    @nom = nom.capitalize
+  end
+
+  def saluer
+    puts "Bonjour #{@nom} !"
+  end
+end
+
+# Créer un nouvel objet
+m = Majordome.new("patron")
+
+# « Bonjour Patron ! »
+m.saluer
+
 # ---  verification 2  ---
 
 
@@ -589,6 +637,5 @@ loop do
     puts "Choix invalide."
   end
 end
-
 
 
