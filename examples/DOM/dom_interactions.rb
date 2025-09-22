@@ -114,11 +114,8 @@ document.addEventListener('touchend', ->(e) { stopDrag.call() })
 resizing = false
 startW = 0
 startH = 0
-
-# Keep previous layout/transform to suspend transform during resize
-prevTransform = ''
-prevMarginLeft = ''
-prevMarginTop = ''
+resizeOffsetX = 0.0
+resizeOffsetY = 0.0
 prevTransition = ''
 
 handle.addEventListener('mousedown', ->(e) {
@@ -127,17 +124,11 @@ handle.addEventListener('mousedown', ->(e) {
   startY = e['clientY']
   startW = box['offsetWidth']
   startH = box['offsetHeight']
-
-  # Suspend transform while resizing to avoid jank
-  prevTransform = box['style']['transform'] || ''
-  prevMarginLeft = box['style']['marginLeft'] || ''
-  prevMarginTop = box['style']['marginTop'] || ''
+  resizeOffsetX = currentX
+  resizeOffsetY = currentY
   prevTransition = box['style']['transition'] || ''
 
   box['style']['transition'] = 'none'
-  box['style']['transform'] = 'none'
-  box['style']['marginLeft'] = "#{currentX}px"
-  box['style']['marginTop'] = "#{currentY}px"
   e['stopPropagation'].call()
   e['preventDefault'].call()
 })
@@ -146,19 +137,18 @@ document.addEventListener('mousemove', ->(e) {
   if resizing
     dw = e['clientX'] - startX
     dh = e['clientY'] - startY
-    w = [100, (startW + dw)].max.to_i
-    h = [80, (startH + dh)].max.to_i
-    box['style']['width'] = "#{w}px"
-    box['style']['height'] = "#{h}px"
+    newW = [100.0, startW.to_f + dw].max
+    newH = [80.0, startH.to_f + dh].max
+    currentX = resizeOffsetX + ((newW - startW.to_f) / 2.0)
+    currentY = resizeOffsetY + ((newH - startH.to_f) / 2.0)
+    box['style']['width'] = "#{newW.to_i}px"
+    box['style']['height'] = "#{newH.to_i}px"
+    box['style']['transform'] = "translate(#{currentX}px, #{currentY}px)"
   end
 })
 document.addEventListener('mouseup', ->(e) {
   if resizing
     resizing = false
-    # Restore transform and transition once done resizing
-    box['style']['transform'] = prevTransform
-    box['style']['marginLeft'] = prevMarginLeft
-    box['style']['marginTop'] = prevMarginTop
     if prevTransition == ''
       box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
     else
