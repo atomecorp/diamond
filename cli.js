@@ -7,6 +7,7 @@ function printHelp() {
   console.log(`Usage: ruby2js <input.rb> [options]\n\n` +
     `Options:\n` +
     `  -o, --out <file>    Write transpiled JavaScript to the specified file\n` +
+    `  -s                  Write alongside the input using the same basename and .js\n` + // ajouté
     `  --ast               Print the intermediate AST to stderr\n` +
     `  -h, --help          Show this message`);
 }
@@ -16,6 +17,7 @@ function main() {
   let inputPath = null;
   let outputPath = null;
   let showAst = false;
+  let sameName = false; // ajouté
 
   while (args.length) {
     const arg = args.shift();
@@ -27,6 +29,8 @@ function main() {
         console.error('Missing value for --out option');
         process.exit(1);
       }
+    } else if (arg === '-s') { // ajouté
+      sameName = true;
     } else if (arg === '-h' || arg === '--help') {
       printHelp();
       return;
@@ -59,6 +63,12 @@ function main() {
     }
     if (outputPath) {
       fs.writeFileSync(path.resolve(process.cwd(), outputPath), result.code, 'utf8');
+    } else if (sameName) { // ajouté
+      const absInput = path.resolve(process.cwd(), inputPath);
+      const dir = path.dirname(absInput);
+      const base = path.basename(absInput, path.extname(absInput));
+      const derived = path.join(dir, `${base}.js`);
+      fs.writeFileSync(derived, result.code, 'utf8');
     } else {
       console.log(result.code);
     }
