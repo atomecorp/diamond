@@ -186,6 +186,16 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('upcase')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyUpcase = (value) => String(value ?? "").toUpperCase();');
+    }
+
+    if (this.runtimeHelpers.has('downcase')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyDowncase = (value) => String(value ?? "").toLowerCase();');
+    }
+
     if (this.runtimeHelpers.has('swapcase')) {
       if (lines.length) lines.push('');
       lines.push('const __rubySwapcase = (value) => {');
@@ -230,6 +240,83 @@ class Emitter {
       lines.push('const __rubyDowncaseBang = (value) => String(value ?? "").toLowerCase();');
     }
 
+    if (this.runtimeHelpers.has('stripBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyStripBang = (value) => __rubyStrip(value);');
+    }
+
+    if (this.runtimeHelpers.has('swapcaseBang')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubySwapcaseBang = (value) => __rubySwapcase(value);');
+    }
+
+    if (this.runtimeHelpers.has('ljust')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyLjust = (value, width, padding) => {');
+      lines.push('  const str = String(value ?? "");');
+      lines.push('  const target = Number(width);');
+      lines.push('  if (!Number.isFinite(target) || target <= str.length) return str;');
+      lines.push('  const pad = padding === undefined ? " " : String(padding);');
+      lines.push('  if (!pad.length) return str;');
+      lines.push('  let result = str;');
+      lines.push('  while (result.length < target) {');
+      lines.push('    const remaining = target - result.length;');
+      lines.push('    result += pad.repeat(Math.ceil(remaining / pad.length)).slice(0, remaining);');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('rjust')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyRjust = (value, width, padding) => {');
+      lines.push('  const str = String(value ?? "");');
+      lines.push('  const target = Number(width);');
+      lines.push('  if (!Number.isFinite(target) || target <= str.length) return str;');
+      lines.push('  const pad = padding === undefined ? " " : String(padding);');
+      lines.push('  if (!pad.length) return str;');
+      lines.push('  let result = str;');
+      lines.push('  while (result.length < target) {');
+      lines.push('    const remaining = target - result.length;');
+      lines.push('    const chunk = pad.repeat(Math.ceil(remaining / pad.length)).slice(0, remaining);');
+      lines.push('    result = chunk + result;');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('chars')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyChars = (value) => Array.from(String(value ?? ""));');
+    }
+
+    if (this.runtimeHelpers.has('gsub')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyGsub = (value, pattern, replacement, block) => {');
+      lines.push('  const source = String(value ?? "");');
+      lines.push('  const buildRegex = (input) => {');
+      const gsubLogic = [
+        '    if (input instanceof RegExp) {',
+        '      const flags = input.flags.includes("g") ? input.flags : input.flags + "g";',
+        '      return new RegExp(input.source, flags);',
+        '    }',
+        '    const escaped = String(input ?? "").replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");',
+        '    return new RegExp(escaped, "g");'
+      ];
+      lines.push(...gsubLogic);
+      lines.push('  };');
+      lines.push('  const regex = buildRegex(pattern);');
+      lines.push('  if (typeof block === "function") {');
+      lines.push('    return source.replace(regex, (...matchParts) => {');
+      lines.push('      const captures = matchParts.slice(0, -2);');
+      lines.push('      return block(...captures);');
+      lines.push('    });');
+      lines.push('  }');
+      lines.push('  const replacementValue = replacement === undefined ? "" : String(replacement);');
+      lines.push('  return source.replace(regex, replacementValue);');
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('collectionInclude')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyCollectionInclude = (collection, item) => {');
@@ -258,6 +345,188 @@ class Emitter {
       lines.push('    return leftNumber - rightNumber;');
       lines.push('  }');
       lines.push('  return left - right;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('times')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyTimes = (value, block) => {');
+      lines.push('  const numeric = Number(value);');
+      const timesLogic = [
+        '  const count = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;',
+        '  if (typeof block !== "function") {',
+        '    return Array.from({ length: count }, (_, index) => index);',
+        '  }',
+        '  for (let index = 0; index < count; index += 1) {',
+        '    block(index);',
+        '  }',
+        '  return value;'
+      ];
+      lines.push(...timesLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('upto')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyUpto = (value, limit, block) => {');
+      const uptoLogic = [
+        '  const start = Number(value);',
+        '  const end = Number(limit);',
+        '  if (!Number.isFinite(start) || !Number.isFinite(end)) {',
+        '    return typeof block === "function" ? value : [];',
+        '  }',
+        '  const from = Math.floor(start);',
+        '  const to = Math.floor(end);',
+        '  if (typeof block !== "function") {',
+        '    const result = [];',
+        '    for (let current = from; current <= to; current += 1) {',
+        '      result.push(current);',
+        '    }',
+        '    return result;',
+        '  }',
+        '  for (let current = from; current <= to; current += 1) {',
+        '    block(current);',
+        '  }',
+        '  return value;'
+      ];
+      lines.push(...uptoLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('downto')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyDownto = (value, limit, block) => {');
+      const downtoLogic = [
+        '  const start = Number(value);',
+        '  const end = Number(limit);',
+        '  if (!Number.isFinite(start) || !Number.isFinite(end)) {',
+        '    return typeof block === "function" ? value : [];',
+        '  }',
+        '  const from = Math.floor(start);',
+        '  const to = Math.floor(end);',
+        '  if (typeof block !== "function") {',
+        '    const result = [];',
+        '    for (let current = from; current >= to; current -= 1) {',
+        '      result.push(current);',
+        '    }',
+        '    return result;',
+        '  }',
+        '  for (let current = from; current >= to; current -= 1) {',
+        '    block(current);',
+        '  }',
+        '  return value;'
+      ];
+      lines.push(...downtoLogic);
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayPush')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyArrayPush = (target, ...values) => {');
+      lines.push('  if (Array.isArray(target)) {');
+      lines.push('    target.push(...values);');
+      lines.push('    return target;');
+      lines.push('  }');
+      lines.push('  if (target && typeof target.push === "function") {');
+      lines.push('    target.push(...values);');
+      lines.push('    return target;');
+      lines.push('  }');
+      lines.push('  return target;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayReject')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyReject = (collection, block) => {');
+      lines.push('  if (!Array.isArray(collection)) return [];');
+      lines.push('  if (typeof block !== "function") return collection.slice();');
+      lines.push('  const result = [];');
+      lines.push('  for (let index = 0; index < collection.length; index += 1) {');
+      lines.push('    if (!block(collection[index], index)) {');
+      lines.push('      result.push(collection[index]);');
+      lines.push('    }');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayShuffle')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyShuffle = (collection) => {');
+      lines.push('  if (!Array.isArray(collection)) return [];');
+      lines.push('  const result = collection.slice();');
+      lines.push('  for (let index = result.length - 1; index > 0; index -= 1) {');
+      lines.push('    const swapIndex = Math.floor(Math.random() * (index + 1));');
+      lines.push('    const temp = result[index];');
+      lines.push('    result[index] = result[swapIndex];');
+      lines.push('    result[swapIndex] = temp;');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayUniq')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyUniq = (collection) => {');
+      lines.push('  if (!Array.isArray(collection)) return [];');
+      lines.push('  const seen = new Set();');
+      lines.push('  const result = [];');
+      lines.push('  for (let index = 0; index < collection.length; index += 1) {');
+      lines.push('    const value = collection[index];');
+      lines.push('    if (seen.has(value)) continue;');
+      lines.push('    seen.add(value);');
+      lines.push('    result.push(value);');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arraySample')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubySample = (collection, count) => {');
+      lines.push('  if (!Array.isArray(collection) || collection.length === 0) {');
+      lines.push('    return count === undefined ? undefined : [];');
+      lines.push('  }');
+      lines.push('  if (count === undefined) {');
+      lines.push('    const index = Math.floor(Math.random() * collection.length);');
+      lines.push('    return collection[index];');
+      lines.push('  }');
+      lines.push('  const total = Number(count);');
+      lines.push('  if (!Number.isFinite(total) || total <= 0) return [];');
+      lines.push('  const pool = collection.slice();');
+      lines.push('  const result = [];');
+      lines.push('  const max = Math.min(pool.length, Math.floor(total));');
+      lines.push('  for (let index = 0; index < max; index += 1) {');
+      lines.push('    const pick = Math.floor(Math.random() * pool.length);');
+      lines.push('    const [value] = pool.splice(pick, 1);');
+      lines.push('    result.push(value);');
+      lines.push('  }');
+      lines.push('  return result;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayFirst')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyFirst = (collection, count) => {');
+      lines.push('  if (!Array.isArray(collection)) return count === undefined ? undefined : [];');
+      lines.push('  if (count === undefined) return collection[0];');
+      lines.push('  const total = Number(count);');
+      lines.push('  if (!Number.isFinite(total) || total <= 0) return [];');
+      lines.push('  return collection.slice(0, Math.floor(total));');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('arrayLast')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyLast = (collection, count) => {');
+      lines.push('  if (!Array.isArray(collection)) return count === undefined ? undefined : [];');
+      lines.push('  if (count === undefined) return collection.length ? collection[collection.length - 1] : undefined;');
+      lines.push('  const total = Number(count);');
+      lines.push('  if (!Number.isFinite(total) || total <= 0) return [];');
+      lines.push('  const size = Math.floor(total);');
+      lines.push('  if (!collection.length) return [];');
+      lines.push('  const start = Math.max(0, collection.length - size);');
+      lines.push('  return collection.slice(start);');
       lines.push('};');
     }
 
@@ -320,6 +589,86 @@ class Emitter {
       lines.push('    return wrapper;');
       lines.push('  }');
       lines.push('  return value;');
+      lines.push('};');
+    }
+
+    if (this.runtimeHelpers.has('range')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyRange = (start, end, exclusive = false) => {');
+      lines.push('  const coerceNumber = (value) => {');
+      lines.push('    if (typeof value === "number") return value;');
+      lines.push('    if (typeof value === "bigint") return Number(value);');
+      const coerceLogic = [
+        '    const parsed = Number(value);',
+        '    return Number.isNaN(parsed) ? null : parsed;'
+      ];
+      lines.push(...coerceLogic);
+      lines.push('  };');
+      lines.push('  const fromNumber = coerceNumber(start);');
+      lines.push('  const toNumber = coerceNumber(end);');
+      lines.push('  const numeric = fromNumber !== null && toNumber !== null;');
+      lines.push('  const ascending = !numeric ? true : fromNumber <= toNumber;');
+      lines.push('  const buildNumeric = (stepValue) => {');
+      const buildNumericLogic = [
+        '    const step = stepValue === undefined ? (ascending ? 1 : -1) : Number(stepValue);',
+        '    if (!Number.isFinite(step) || step === 0) return [];',
+        '    if (ascending && step < 0) return [];',
+        '    if (!ascending && step > 0) return [];',
+        '    const limit = (value) => {',
+        '      if (ascending) {',
+        '        return exclusive ? value < toNumber : value <= toNumber;',
+        '      }',
+        '      return exclusive ? value > toNumber : value >= toNumber;',
+        '    };',
+        '    const values = [];',
+        '    for (let current = fromNumber; limit(current); current += step) {',
+        '      values.push(current);',
+        '      if (current === toNumber) break;',
+        '    }',
+        '    return values;'
+      ];
+      lines.push(...buildNumericLogic);
+      lines.push('  };');
+      lines.push('  const buildFallback = () => {');
+      lines.push('    const values = [start];');
+      lines.push('    if (!exclusive || start !== end) values.push(end);');
+      lines.push('    return values;');
+      lines.push('  };');
+      lines.push('  const buildValues = (stepValue) => numeric ? buildNumeric(stepValue) : buildFallback();');
+      lines.push('  const range = {');
+      lines.push('    to_a() {');
+      lines.push('      return buildValues();');
+      lines.push('    },');
+      lines.push('    each(block) {');
+      lines.push('      const values = buildValues();');
+      lines.push('      if (typeof block !== "function") return values;');
+      lines.push('      for (let index = 0; index < values.length; index += 1) {');
+      lines.push('        block(values[index]);');
+      lines.push('      }');
+      lines.push('      return range;');
+      lines.push('    },');
+      lines.push('    step(stepValue, block) {');
+      lines.push('      let stepAmount = stepValue;');
+      lines.push('      let fn = block;');
+      lines.push('      if (typeof block !== "function" && typeof stepValue === "function") {');
+      lines.push('        fn = stepValue;');
+        lines.push('        stepAmount = undefined;');
+      lines.push('      }');
+      lines.push('      const values = buildValues(stepAmount);');
+      lines.push('      if (typeof fn !== "function") return values;');
+      lines.push('      for (let index = 0; index < values.length; index += 1) {');
+      lines.push('        fn(values[index]);');
+      lines.push('      }');
+      lines.push('      return range;');
+      lines.push('    }');
+      lines.push('  };');
+      lines.push('  range[Symbol.iterator] = function* () {');
+      lines.push('    const values = buildValues();');
+      lines.push('    for (let index = 0; index < values.length; index += 1) {');
+      lines.push('      yield values[index];');
+      lines.push('    }');
+      lines.push('  };');
+      lines.push('  return range;');
       lines.push('};');
     }
 
@@ -1394,6 +1743,8 @@ class Emitter {
         return node.value ? 'true' : 'false';
       case 'NullLiteral':
         return 'null';
+      case 'RangeExpression':
+        return this.emitRangeExpression(node, context);
       case 'SymbolLiteral':
         return this.quote(node.name);
       case 'ArrayExpression':
@@ -1636,6 +1987,32 @@ class Emitter {
         return `(() => { ${memberObjectCode} = ${bangInfo.helper}(${memberObjectCode}); return ${memberObjectCode}; })()`;
       }
 
+      if (memberProperty === 'times' && node.arguments.length === 0) {
+        this.requireRuntime('times');
+        if (blockCode) {
+          return `__rubyTimes(${memberObjectCode}, ${blockCode})`;
+        }
+        return `__rubyTimes(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'upto' && processedArgs.length >= 1) {
+        this.requireRuntime('upto');
+        const limitArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        if (blockCode) {
+          return `__rubyUpto(${memberObjectCode}, ${limitArg}, ${blockCode})`;
+        }
+        return `__rubyUpto(${memberObjectCode}, ${limitArg})`;
+      }
+
+      if (memberProperty === 'downto' && processedArgs.length >= 1) {
+        this.requireRuntime('downto');
+        const limitArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        if (blockCode) {
+          return `__rubyDownto(${memberObjectCode}, ${limitArg}, ${blockCode})`;
+        }
+        return `__rubyDownto(${memberObjectCode}, ${limitArg})`;
+      }
+
       if (memberProperty === 'public_send') {
         const methodArg = node.arguments[0];
         const methodNameLiteral = this.extractSymbolName(methodArg);
@@ -1668,6 +2045,16 @@ class Emitter {
         return `__rubyStrip(${memberObjectCode})`;
       }
 
+      if (memberProperty === 'upcase' && node.arguments.length === 0) {
+        this.requireRuntime('upcase');
+        return `__rubyUpcase(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'downcase' && node.arguments.length === 0) {
+        this.requireRuntime('downcase');
+        return `__rubyDowncase(${memberObjectCode})`;
+      }
+
       if (memberProperty === 'split' && node.arguments.length === 0) {
         this.requireRuntime('split');
         return `__rubySplit(${memberObjectCode})`;
@@ -1691,6 +2078,35 @@ class Emitter {
       if (memberProperty === 'swapcase' && node.arguments.length === 0) {
         this.requireRuntime('swapcase');
         return `__rubySwapcase(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'ljust') {
+        this.requireRuntime('ljust');
+        const widthArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        const padArg = processedArgs[1] && processedArgs[1].code ? processedArgs[1].code : 'undefined';
+        return `__rubyLjust(${memberObjectCode}, ${widthArg}, ${padArg})`;
+      }
+
+      if (memberProperty === 'rjust') {
+        this.requireRuntime('rjust');
+        const widthArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        const padArg = processedArgs[1] && processedArgs[1].code ? processedArgs[1].code : 'undefined';
+        return `__rubyRjust(${memberObjectCode}, ${widthArg}, ${padArg})`;
+      }
+
+      if (memberProperty === 'chars' && node.arguments.length === 0) {
+        this.requireRuntime('chars');
+        return `__rubyChars(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'gsub' && processedArgs.length >= 1) {
+        this.requireRuntime('gsub');
+        const patternArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        const replacementArg = processedArgs[1] && processedArgs[1].code ? processedArgs[1].code : 'undefined';
+        if (blockCode) {
+          return `__rubyGsub(${memberObjectCode}, ${patternArg}, undefined, ${blockCode})`;
+        }
+        return `__rubyGsub(${memberObjectCode}, ${patternArg}, ${replacementArg})`;
       }
 
       if (memberProperty === 'include?' && node.arguments.length === 1) {
@@ -1728,6 +2144,14 @@ class Emitter {
         return `${memberObjectCode}.filter(${blockCode})`;
       }
 
+      if (memberProperty === 'reject') {
+        this.requireRuntime('arrayReject');
+        if (blockCode) {
+          return `__rubyReject(${memberObjectCode}, ${blockCode})`;
+        }
+        return `__rubyReject(${memberObjectCode})`;
+      }
+
       if (memberProperty === 'class' && node.arguments.length === 0) {
         this.requireRuntime('className');
         return `__rubyClassName(${memberObjectCode})`;
@@ -1750,6 +2174,41 @@ class Emitter {
           return `__rubyFetch(${memberObjectCode}, ${indexArg}, ${defaultArg})`;
         }
         return `__rubyFetch(${memberObjectCode}, ${indexArg})`;
+      }
+
+      if (memberProperty === 'first') {
+        this.requireRuntime('arrayFirst');
+        const countArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        return `__rubyFirst(${memberObjectCode}${processedArgs.length ? `, ${countArg}` : ''})`;
+      }
+
+      if (memberProperty === 'last') {
+        this.requireRuntime('arrayLast');
+        const countArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        return `__rubyLast(${memberObjectCode}${processedArgs.length ? `, ${countArg}` : ''})`;
+      }
+
+      if (memberProperty === 'push') {
+        this.requireRuntime('arrayPush');
+        const pushArgs = processedArgs.map(arg => arg.code).filter(Boolean);
+        const argsTail = pushArgs.length ? `, ${pushArgs.join(', ')}` : '';
+        return `__rubyArrayPush(${memberObjectCode}${argsTail})`;
+      }
+
+      if (memberProperty === 'shuffle' && node.arguments.length === 0 && !blockCode) {
+        this.requireRuntime('arrayShuffle');
+        return `__rubyShuffle(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'uniq' && node.arguments.length === 0 && !blockCode) {
+        this.requireRuntime('arrayUniq');
+        return `__rubyUniq(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'sample') {
+        this.requireRuntime('arraySample');
+        const sampleArg = processedArgs[0] && processedArgs[0].code ? processedArgs[0].code : 'undefined';
+        return processedArgs.length ? `__rubySample(${memberObjectCode}, ${sampleArg})` : `__rubySample(${memberObjectCode})`;
       }
 
       if (memberProperty === 'match') {
@@ -2305,9 +2764,10 @@ class Emitter {
 
   emitBinaryExpression(node, context) {
     if (node.operator === '<<') {
+      this.requireRuntime('arrayPush');
       const left = this.emitExpression(node.left, context);
       const right = this.emitExpression(node.right, context);
-      return `${left}.push(${right})`;
+      return `__rubyArrayPush(${left}, ${right})`;
     }
     if (node.operator === '-') {
       this.requireRuntime('minus');
@@ -2349,6 +2809,27 @@ class Emitter {
       filteredFlags += 'u';
     }
     return `new RegExp("${pattern}", "${filteredFlags}")`;
+  }
+
+  emitRangeExpression(node, context) {
+    this.requireRuntime('range');
+    const wrapIfNeeded = (subNode, code) => {
+      if (!subNode) return code;
+      const needsParens = new Set([
+        'BinaryExpression',
+        'LogicalExpression',
+        'ConditionalExpression',
+        'AssignmentExpression',
+        'RangeExpression'
+      ]);
+      return needsParens.has(subNode.type) ? `(${code})` : code;
+    };
+    const start = this.emitExpression(node.start, context);
+    const end = this.emitExpression(node.end, context);
+    const startCode = wrapIfNeeded(node.start, start);
+    const endCode = wrapIfNeeded(node.end, end);
+    const exclusiveFlag = node.exclusive ? 'true' : 'false';
+    return `__rubyRange(${startCode}, ${endCode}, ${exclusiveFlag})`;
   }
 
   emitMethodDefinition(node, context = {}) {
@@ -3328,7 +3809,9 @@ class Emitter {
       'capitalize!': { helper: '__rubyCapitalizeBang', runtime: 'capitalizeBang', dependencies: ['capitalize'] },
       'reverse!': { helper: '__rubyReverseBang', runtime: 'reverseBang' },
       'upcase!': { helper: '__rubyUpcaseBang', runtime: 'upcaseBang' },
-      'downcase!': { helper: '__rubyDowncaseBang', runtime: 'downcaseBang' }
+      'downcase!': { helper: '__rubyDowncaseBang', runtime: 'downcaseBang' },
+      'strip!': { helper: '__rubyStripBang', runtime: 'stripBang', dependencies: ['strip'] },
+      'swapcase!': { helper: '__rubySwapcaseBang', runtime: 'swapcaseBang', dependencies: ['swapcase'] }
     };
     return mapping[name] || null;
   }

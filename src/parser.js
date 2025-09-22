@@ -698,11 +698,26 @@ class Parser {
   }
 
   parseEquality() {
-    let expr = this.parseComparison();
+    let expr = this.parseRange();
     while (this.match('OPERATOR', '==') || this.match('OPERATOR', '!=')) {
       const operator = this.previous().value;
-      const right = this.parseComparison();
+      const right = this.parseRange();
       expr = { type: 'BinaryExpression', operator, left: expr, right };
+    }
+    return expr;
+  }
+
+  parseRange() {
+    let expr = this.parseComparison();
+    if (this.match('OPERATOR', '..') || this.match('OPERATOR', '...')) {
+      const operator = this.previous().value;
+      const right = this.parseRange();
+      expr = {
+        type: 'RangeExpression',
+        start: expr,
+        end: right,
+        exclusive: operator === '...'
+      };
     }
     return expr;
   }
