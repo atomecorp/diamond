@@ -1,31 +1,63 @@
 let MYCONST;
 let __f;
 let a;
+let apply_transform;
 let b;
+let base_shadow;
+let box;
 let c;
 let choix;
+let cleanup_resize;
+let container;
+let currentX;
+let currentY;
+let default_transition;
+let dragPointerId;
+let drag_shadow;
+let dragging;
+let drop_check;
+let dropzone;
 let fs;
 let h;
+let handle;
 let invoice;
+let isOver;
+let label;
 let list;
 let m;
+let moveDrag;
 let obj;
-let on_ready;
+let pendingFrame;
 let processed;
 let q;
 let r;
+let raf_candidate;
+let raf_fn;
 let remove_short;
+let resizeOffsetX;
+let resizeOffsetY;
+let resizePointerId;
+let resizePrevTransition;
+let resizing;
 let restantes;
 let result;
 let reverse_text;
 let rows;
 let say;
+let schedule_transform;
+let startDrag;
+let startH;
+let startW;
+let startX;
+let startY;
+let stopDrag;
 let t;
 let text;
 let to_capitalize;
 let u;
 let villes;
 let visitees;
+let window_obj;
 let worker;
 let x;
 let y;
@@ -678,222 +710,315 @@ const __rubyRaise = (...args) => {
   throw new Error(String(first));
 };
 
-on_ready = () => {
-  let box;
-  let boxX;
-  let boxY;
-  let container;
-  let dragging;
-  let dropzone;
-  let handle;
-  let isOver;
-  let label;
-  let moveDrag;
-  let parse_translate;
-  let resizing;
-  let startDrag;
-  let startH;
-  let startW;
-  let startX;
-  let startY;
-  let stopDrag;
-  container = __rubySend(document, "createElement", ["div"], undefined);
-  container["style"]["width"] = "100%";
-  container["style"]["height"] = "100vh";
-  container["style"]["margin"] = "0";
-  container["style"]["display"] = "flex";
-  container["style"]["alignItems"] = "center";
-  container["style"]["justifyContent"] = "center";
-  container["style"]["background"] = "linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)";
-  container["style"]["position"] = "relative";
-  __rubySend(document["body"], "appendChild", [container], undefined);
-  box = __rubySend(document, "createElement", ["div"], undefined);
-  box["style"]["width"] = "220px";
-  box["style"]["height"] = "140px";
-  box["style"]["borderRadius"] = "16px";
-  box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
-  box["style"]["background"] = "linear-gradient(135deg, #6EE7F9 0%, #9333EA 100%)";
-  box["style"]["position"] = "relative";
-  box["style"]["cursor"] = "grab";
-  box["style"]["userSelect"] = "none";
-  box["style"]["transform"] = "translate(0px, 0px)";
-  box["style"]["transition"] = "transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease";
-  __rubySend(container, "appendChild", [box], undefined);
-  label = __rubySend(document, "createElement", ["div"], undefined);
-  label["style"]["color"] = "#fff";
-  label["style"]["fontFamily"] = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-  label["style"]["fontSize"] = "14px";
-  label["style"]["padding"] = "12px";
-  label["innerText"] = "Click / Tap / Drag me";
-  __rubySend(box, "appendChild", [label], undefined);
-  handle = __rubySend(document, "createElement", ["div"], undefined);
-  handle["style"]["position"] = "absolute";
-  handle["style"]["right"] = "6px";
-  handle["style"]["bottom"] = "6px";
-  handle["style"]["width"] = "14px";
-  handle["style"]["height"] = "14px";
-  handle["style"]["borderRadius"] = "3px";
-  handle["style"]["background"] = "rgba(255,255,255,.85)";
-  handle["style"]["boxShadow"] = "0 1px 3px rgba(0,0,0,.3)";
-  handle["style"]["cursor"] = "nwse-resize";
-  __rubySend(box, "appendChild", [handle], undefined);
-  __rubySend(box, "addEventListener", ["mouseenter", (e) => {
-    return box["style"]["boxShadow"] = "0 14px 32px rgba(0,0,0,.32)";
-  }], undefined);
-  __rubySend(box, "addEventListener", ["mouseleave", (e) => {
-    return box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
-  }], undefined);
-  __rubySend(box, "addEventListener", ["click", (e) => {
-    return __rubySend(console, "log", ["clicked"], undefined);
-  }], undefined);
-  __rubySend(box, "addEventListener", ["touchstart", (e) => {
-    return __rubySend(console, "log", ["tap"], undefined);
-  }], undefined);
-  dragging = false;
-  startX = 0;
-  startY = 0;
-  boxX = 0;
-  boxY = 0;
-  parse_translate = (t) => {
-    let m;
-    m = __rubyMatch(new RegExp("translate\\(([-\\d.]+)px, ([-\\d.]+)px\\)", ""), t);
-    if (m) {
-      return [__rubyToFloat(m[1]), __rubyToFloat(m[2])];
+container = __rubySend(document, "createElement", ["div"], undefined);
+container["style"]["width"] = "100%";
+container["style"]["height"] = "100vh";
+container["style"]["margin"] = "0";
+container["style"]["display"] = "flex";
+container["style"]["alignItems"] = "center";
+container["style"]["justifyContent"] = "center";
+container["style"]["background"] = "linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)";
+container["style"]["position"] = "relative";
+__rubySend(document["body"], "appendChild", [container], undefined);
+box = __rubySend(document, "createElement", ["div"], undefined);
+box["style"]["width"] = "220px";
+box["style"]["height"] = "140px";
+box["style"]["borderRadius"] = "16px";
+box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
+box["style"]["background"] = "linear-gradient(135deg, #6EE7F9 0%, #9333EA 100%)";
+box["style"]["position"] = "relative";
+box["style"]["cursor"] = "grab";
+box["style"]["userSelect"] = "none";
+box["style"]["touchAction"] = "none";
+box["style"]["willChange"] = "transform";
+box["style"]["transform"] = "translate3d(0px, 0px, 0)";
+box["style"]["transition"] = "transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease";
+default_transition = box["style"]["transition"];
+__rubySend(container, "appendChild", [box], undefined);
+label = __rubySend(document, "createElement", ["div"], undefined);
+label["style"]["color"] = "#fff";
+label["style"]["fontFamily"] = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+label["style"]["fontSize"] = "14px";
+label["style"]["padding"] = "12px";
+label["innerText"] = "Click / Tap / Drag me";
+__rubySend(box, "appendChild", [label], undefined);
+handle = __rubySend(document, "createElement", ["div"], undefined);
+handle["style"]["position"] = "absolute";
+handle["style"]["right"] = "6px";
+handle["style"]["bottom"] = "6px";
+handle["style"]["width"] = "14px";
+handle["style"]["height"] = "14px";
+handle["style"]["borderRadius"] = "3px";
+handle["style"]["background"] = "rgba(255,255,255,.85)";
+handle["style"]["boxShadow"] = "0 1px 3px rgba(0,0,0,.3)";
+handle["style"]["cursor"] = "nwse-resize";
+__rubySend(box, "appendChild", [handle], undefined);
+__rubySend(box, "addEventListener", ["mouseenter", (e) => {
+  return box["style"]["boxShadow"] = "0 14px 32px rgba(0,0,0,.32)";
+}], undefined);
+__rubySend(box, "addEventListener", ["mouseleave", (e) => {
+  return box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
+}], undefined);
+__rubySend(box, "addEventListener", ["click", (e) => {
+  return __rubySend(console, "log", ["clicked"], undefined);
+}], undefined);
+__rubySend(box, "addEventListener", ["touchstart", (e) => {
+  return __rubySend(console, "log", ["tap"], undefined);
+}], undefined);
+dragging = false;
+dragPointerId = null;
+startX = 0;
+startY = 0;
+currentX = 0;
+currentY = 0;
+pendingFrame = false;
+window_obj = null;
+(() => {
+  let __result1;
+  let __handled2 = false;
+  try {
+    __result1 = (() => {
+    return window_obj = __rubySend(JS, "global", [], undefined)["window"];
+  }).call(this);
+  } catch (__error3) {
+    if (!__handled2 && __rubyRescueMatch(__error3, ["NameError"])) {
+      __result1 = (() => {
+      return window_obj = null;
+    }).call(this);
+      __handled2 = true;
+    }
+    if (!__handled2) throw __error3;
+  }
+  return __result1;
+})();;
+raf_fn = null;
+if (window_obj) {
+  raf_candidate = window_obj["requestAnimationFrame"];
+  if (raf_candidate) {
+    raf_fn = raf_candidate;
+  }
+}
+apply_transform = null;
+apply_transform = (() => {
+  let __self4 = this;
+  const __block5 = function(...__args6) {
+    return (function(_timestamp) {
+  pendingFrame = false;
+  return box["style"]["transform"] = `translate3d(${currentX}px, ${currentY}px, 0)`;
+}).apply(__self4, __args6);
+  };
+  __block5.__rubyBind = (value) => {
+    const __prev7 = __self4;
+    __self4 = value;
+    return () => {
+      __self4 = __prev7;
+    };
+  };
+  return __block5;
+})();
+schedule_transform = (() => {
+  let __self8 = this;
+  const __block9 = function(...__args10) {
+    return (function() {
+  if (raf_fn) {
+    if (pendingFrame) {
     }
     else {
-      return [0, 0];
+      pendingFrame = true;
+      return raf_fn((ts) => {
+        return apply_transform(ts);
+      });
     }
+  }
+  else {
+    return apply_transform(null);
+  }
+}).apply(__self8, __args10);
   };
-  startDrag = (clientX, clientY) => {
-    let coords;
-    dragging = true;
-    box["style"]["cursor"] = "grabbing";
-    box["style"]["transition"] = "none";
-    startX = clientX;
-    startY = clientY;
-    coords = parse_translate(box["style"]["transform"] || "");
-    boxX = coords[0];
-    return boxY = coords[1];
+  __block9.__rubyBind = (value) => {
+    const __prev11 = __self8;
+    __self8 = value;
+    return () => {
+      __self8 = __prev11;
+    };
   };
-  moveDrag = (clientX, clientY) => {
-    let dx;
-    let dy;
-    if (!dragging) {
-      return;
-    }
-    dx = __rubyMinus(clientX, startX);
-    dy = __rubyMinus(clientY, startY);
-    return box["style"]["transform"] = `translate(${__rubyToInteger(boxX + dx)}px, ${__rubyToInteger(boxY + dy)}px)`;
-  };
-  stopDrag = () => {
-    dragging = false;
-    box["style"]["cursor"] = "grab";
-    return box["style"]["transition"] = "transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease";
-  };
-  __rubySend(box, "addEventListener", ["mousedown", (e) => {
-    startDrag(e["clientX"], e["clientY"]);
-    return e["preventDefault"]();
-  }], undefined);
-  __rubySend(document, "addEventListener", ["mousemove", (e) => {
-    return moveDrag(e["clientX"], e["clientY"]);
-  }], undefined);
-  __rubySend(document, "addEventListener", ["mouseup", (e) => {
-    return stopDrag();
-  }], undefined);
-  __rubySend(box, "addEventListener", ["touchstart", (e) => {
-    let t;
-    t = e["touches"][0];
-    return startDrag(t["clientX"], t["clientY"]);
-  }], undefined);
-  __rubySend(document, "addEventListener", ["touchmove", (e) => {
-    let t;
-    t = e["touches"][0];
-    return moveDrag(t["clientX"], t["clientY"]);
-  }], undefined);
-  __rubySend(document, "addEventListener", ["touchend", (e) => {
-    return stopDrag();
-  }], undefined);
-  resizing = false;
-  startW = 0;
-  startH = 0;
-  __rubySend(handle, "addEventListener", ["mousedown", (e) => {
-    resizing = true;
-    startX = e["clientX"];
-    startY = e["clientY"];
-    startW = box["offsetWidth"];
-    startH = box["offsetHeight"];
-    e["stopPropagation"]();
-    return e["preventDefault"]();
-  }], undefined);
-  __rubySend(document, "addEventListener", ["mousemove", (e) => {
-    let dh;
-    let dw;
-    let h;
-    let w;
-    if (resizing) {
-      dw = __rubyMinus(e["clientX"], startX);
-      dh = __rubyMinus(e["clientY"], startY);
-      w = __rubyToInteger(Math.max(...[100, startW + dw]));
-      h = __rubyToInteger(Math.max(...[80, startH + dh]));
-      box["style"]["width"] = `${w}px`;
-      return box["style"]["height"] = `${h}px`;
-    }
-  }], undefined);
-  __rubySend(document, "addEventListener", ["mouseup", (e) => {
-    return resizing = false;
-  }], undefined);
-  dropzone = __rubySend(document, "createElement", ["div"], undefined);
-  dropzone["style"]["position"] = "absolute";
-  dropzone["style"]["top"] = "20px";
-  dropzone["style"]["left"] = "20px";
-  dropzone["style"]["width"] = "120px";
-  dropzone["style"]["height"] = "80px";
-  dropzone["style"]["border"] = "2px dashed rgba(255,255,255,.75)";
-  dropzone["style"]["borderRadius"] = "8px";
-  dropzone["style"]["color"] = "#fff";
-  dropzone["style"]["display"] = "flex";
-  dropzone["style"]["alignItems"] = "center";
-  dropzone["style"]["justifyContent"] = "center";
-  dropzone["innerText"] = "Drop here";
-  __rubySend(container, "appendChild", [dropzone], undefined);
-  isOver = (el, x, y) => {
-    let r;
-    r = el["getBoundingClientRect"]();
-    return x >= r["left"] && x <= r["right"] && y >= r["top"] && y <= r["bottom"];
-  };
-  return __rubySend(document, "addEventListener", ["mouseup", (e) => {
-    if (isOver(dropzone, e["clientX"], e["clientY"])) {
-      box["style"]["transform"] = "translate(20px, 20px)";
-      return __rubySend(console, "log", ["dropped"], undefined);
-    }
-  }], undefined);
+  return __block9;
+})();
+base_shadow = box["style"]["boxShadow"];
+drag_shadow = "0 8px 18px rgba(0,0,0,.22)";
+drop_check = null;
+startDrag = (event) => {
+  dragging = true;
+  dragPointerId = event["pointerId"];
+  if (box["setPointerCapture"]) {
+    box["setPointerCapture"](dragPointerId);
+  }
+  box["style"]["cursor"] = "grabbing";
+  box["style"]["boxShadow"] = drag_shadow;
+  box["style"]["transition"] = "transform 0s, width .2s ease, height .2s ease, box-shadow .2s ease";
+  startX = __rubyMinus(event["clientX"], currentX);
+  startY = __rubyMinus(event["clientY"], currentY);
+  if (event["preventDefault"]) {
+    return event["preventDefault"]();
+  }
 };
-if (document["readyState"] === "loading") {
-  __rubySend(document, "addEventListener", ["DOMContentLoaded", on_ready], undefined);
-}
-else {
-  on_ready();
-}
+moveDrag = (event) => {
+  if (dragging && dragPointerId && event["pointerId"] === dragPointerId) {
+    currentX = __rubyMinus(event["clientX"], startX);
+    currentY = __rubyMinus(event["clientY"], startY);
+    return schedule_transform();
+  }
+};
+stopDrag = () => {
+  if (dragging) {
+    dragging = false;
+    if (dragPointerId && box["releasePointerCapture"]) {
+      box["releasePointerCapture"](dragPointerId);
+    }
+    dragPointerId = null;
+    box["style"]["cursor"] = "grab";
+    box["style"]["boxShadow"] = base_shadow;
+    box["style"]["transition"] = default_transition;
+    return schedule_transform();
+  }
+};
+__rubySend(box, "addEventListener", ["pointerdown", (event) => {
+  let button;
+  if (!resizing) {
+    button = event["button"];
+    if (button === null || button === 0) {
+      return startDrag(event);
+    }
+  }
+}], undefined);
+resizing = false;
+resizePointerId = null;
+startW = 0;
+startH = 0;
+resizeOffsetX = 0;
+resizeOffsetY = 0;
+resizePrevTransition = "";
+__rubySend(handle, "addEventListener", ["pointerdown", (event) => {
+  resizing = true;
+  resizePointerId = event["pointerId"];
+  if (handle["setPointerCapture"]) {
+    handle["setPointerCapture"](resizePointerId);
+  }
+  startX = event["clientX"];
+  startY = event["clientY"];
+  startW = box["offsetWidth"];
+  startH = box["offsetHeight"];
+  resizeOffsetX = currentX;
+  resizeOffsetY = currentY;
+  resizePrevTransition = box["style"]["transition"] || default_transition;
+  box["style"]["transition"] = "none";
+  box["style"]["boxShadow"] = drag_shadow;
+  if (event["stopPropagation"]) {
+    event["stopPropagation"]();
+  }
+  if (event["preventDefault"]) {
+    return event["preventDefault"]();
+  }
+}], undefined);
+__rubySend(document, "addEventListener", ["pointermove", (event) => {
+  let dh;
+  let dw;
+  let newH;
+  let newW;
+  if (resizing && resizePointerId && event["pointerId"] === resizePointerId) {
+    dw = __rubyMinus(event["clientX"], startX);
+    dh = __rubyMinus(event["clientY"], startY);
+    newW = Math.max(...[100, __rubyToFloat(startW) + dw]);
+    newH = Math.max(...[80, __rubyToFloat(startH) + dh]);
+    currentX = resizeOffsetX + __rubyMinus(newW, __rubyToFloat(startW)) / 2;
+    currentY = resizeOffsetY + __rubyMinus(newH, __rubyToFloat(startH)) / 2;
+    box["style"]["width"] = `${__rubyToInteger(newW)}px`;
+    box["style"]["height"] = `${__rubyToInteger(newH)}px`;
+    return schedule_transform();
+  }
+  else if (dragging && dragPointerId && event["pointerId"] === dragPointerId) {
+    return moveDrag(event);
+  }
+}], undefined);
+cleanup_resize = () => {
+  resizing = false;
+  if (handle["releasePointerCapture"] && resizePointerId) {
+    handle["releasePointerCapture"](resizePointerId);
+  }
+  resizePointerId = null;
+  box["style"]["transition"] = resizePrevTransition || default_transition;
+  box["style"]["boxShadow"] = base_shadow;
+  return schedule_transform();
+};
+__rubySend(document, "addEventListener", ["pointerup", (event) => {
+  if (resizing && resizePointerId && event["pointerId"] === resizePointerId) {
+    cleanup_resize();
+    if (event["preventDefault"]) {
+      return event["preventDefault"]();
+    }
+  }
+  else if (dragging && dragPointerId && event["pointerId"] === dragPointerId) {
+    stopDrag();
+    if (drop_check) {
+      return drop_check(event["clientX"], event["clientY"]);
+    }
+  }
+}], undefined);
+__rubySend(document, "addEventListener", ["pointercancel", (event) => {
+  if (resizing && resizePointerId && event["pointerId"] === resizePointerId) {
+    return cleanup_resize();
+  }
+  else if (dragging && dragPointerId && event["pointerId"] === dragPointerId) {
+    return stopDrag();
+  }
+}], undefined);
+dropzone = __rubySend(document, "createElement", ["div"], undefined);
+dropzone["style"]["position"] = "absolute";
+dropzone["style"]["top"] = "20px";
+dropzone["style"]["left"] = "20px";
+dropzone["style"]["width"] = "120px";
+dropzone["style"]["height"] = "80px";
+dropzone["style"]["border"] = "2px dashed rgba(255,255,255,.75)";
+dropzone["style"]["borderRadius"] = "8px";
+dropzone["style"]["color"] = "#fff";
+dropzone["style"]["display"] = "flex";
+dropzone["style"]["alignItems"] = "center";
+dropzone["style"]["justifyContent"] = "center";
+dropzone["innerText"] = "Drop here";
+__rubySend(container, "appendChild", [dropzone], undefined);
+isOver = (el, x, y) => {
+  let r;
+  r = el["getBoundingClientRect"]();
+  return x >= r["left"] && x <= r["right"] && y >= r["top"] && y <= r["bottom"];
+};
+drop_check = (clientX, clientY) => {
+  if (isOver(dropzone, clientX, clientY)) {
+    currentX = 20;
+    currentY = 20;
+    schedule_transform();
+    return __rubySend(console, "log", ["dropped"], undefined);
+  }
+};
 console.log("----- Full example -----");
 say = "I love Ruby";
 console.log(say);
 say["love"] = "*love*";
 console.log((() => { say = __rubyUpcaseBang(say); return say; })());
 __rubyTimes(5, (() => {
-  let __self1 = this;
-  const __block2 = function(...__args3) {
+  let __self12 = this;
+  const __block13 = function(...__args14) {
     return (function() {
   return console.log(say);
-}).apply(__self1, __args3);
+}).apply(__self12, __args14);
   };
-  __block2.__rubyBind = (value) => {
-    const __prev4 = __self1;
-    __self1 = value;
+  __block13.__rubyBind = (value) => {
+    const __prev15 = __self12;
+    __self12 = value;
     return () => {
-      __self1 = __prev4;
+      __self12 = __prev15;
     };
   };
-  return __block2;
+  return __block13;
 })());
 a = "hello world";
 (() => { a = __rubyCapitalizeBang(a); return a; })();
@@ -949,9 +1074,9 @@ class K {
   }
 }
 (() => {
-    const __singleton5 = K;
-    if (__singleton5 == null) { return; }
-    __singleton5.cm = function() {
+    const __singleton16 = K;
+    if (__singleton16 == null) { return; }
+    __singleton16.cm = function() {
       return "class_method";
     };
   })();
@@ -979,156 +1104,156 @@ const Hooks = {};
   Hooks.method_added = function(name) {
   };
 (() => {
-  let __result10;
-  let __handled11 = false;
+  let __result21;
+  let __handled22 = false;
   try {
-    __result10 = (() => {
+    __result21 = (() => {
     return __rubyRaise(__rubyEnsureError("ArgumentError"), "bad");
   }).call(this);
-  } catch (__error12) {
-    if (!__handled11 && __rubyRescueMatch(__error12, ["ArgumentError"])) {
-      const e = __error12;
-      __result10 = (() => {
+  } catch (__error23) {
+    if (!__handled22 && __rubyRescueMatch(__error23, ["ArgumentError"])) {
+      const e = __error23;
+      __result21 = (() => {
       return __rubyClassName(e);
     }).call(this);
-      __handled11 = true;
+      __handled22 = true;
     }
-    if (!__handled11) throw __error12;
+    if (!__handled22) throw __error23;
   } finally {
     "always";
   }
-  return __result10;
+  return __result21;
 })();;
 x = (() => {
-  let __result13;
-  let __handled14 = false;
+  let __result24;
+  let __handled25 = false;
   try {
-    __result13 = (() => {
+    __result24 = (() => {
     return 1 / 0;
   }).call(this);
-  } catch (__error15) {
-    if (!__handled14 && true) {
-      __result13 = (() => {
+  } catch (__error26) {
+    if (!__handled25 && true) {
+      __result24 = (() => {
       return "err";
     }).call(this);
-      __handled14 = true;
+      __handled25 = true;
     }
-    if (!__handled14) throw __error15;
+    if (!__handled25) throw __error26;
   }
-  return __result13;
+  return __result24;
 })();;
 t = new Thread((() => {
-  let __self16 = this;
-  const __block17 = function(...__args18) {
+  let __self27 = this;
+  const __block28 = function(...__args29) {
     return (function() {
   return __rubySend(Thread, "current", [], undefined)["foo"] = 1;
-}).apply(__self16, __args18);
+}).apply(__self27, __args29);
   };
-  __block17.__rubyBind = (value) => {
-    const __prev19 = __self16;
-    __self16 = value;
+  __block28.__rubyBind = (value) => {
+    const __prev30 = __self27;
+    __self27 = value;
     return () => {
-      __self16 = __prev19;
+      __self27 = __prev30;
     };
   };
-  return __block17;
+  return __block28;
 })());
 __f = new Fiber((() => {
-  let __self20 = this;
-  const __block21 = function(...__args22) {
+  let __self31 = this;
+  const __block32 = function(...__args33) {
     return (function() {
   __rubySend(Fiber, "yield", [], undefined)(1);
   return 2;
-}).apply(__self20, __args22);
+}).apply(__self31, __args33);
   };
-  __block21.__rubyBind = (value) => {
-    const __prev23 = __self20;
-    __self20 = value;
+  __block32.__rubyBind = (value) => {
+    const __prev34 = __self31;
+    __self31 = value;
     return () => {
-      __self20 = __prev23;
+      __self31 = __prev34;
     };
   };
-  return __block21;
+  return __block32;
 })());
 e = new Enumerator((() => {
-  let __self24 = this;
-  const __block25 = function(...__args26) {
+  let __self35 = this;
+  const __block36 = function(...__args37) {
     return (function(y) {
   __rubyArrayPush(y, 1);
   return __rubyArrayPush(y, 2);
-}).apply(__self24, __args26);
+}).apply(__self35, __args37);
   };
-  __block25.__rubyBind = (value) => {
-    const __prev27 = __self24;
-    __self24 = value;
+  __block36.__rubyBind = (value) => {
+    const __prev38 = __self35;
+    __self35 = value;
     return () => {
-      __self24 = __prev27;
+      __self35 = __prev38;
     };
   };
-  return __block25;
+  return __block36;
 })());
 __rubySend(File, "open", [__FILE__, "r"], (() => {
-  let __self28 = this;
-  const __block29 = function(...__args30) {
+  let __self39 = this;
+  const __block40 = function(...__args41) {
     return (function(f) {
   return __rubyGets();
-}).apply(__self28, __args30);
+}).apply(__self39, __args41);
   };
-  __block29.__rubyBind = (value) => {
-    const __prev31 = __self28;
-    __self28 = value;
+  __block40.__rubyBind = (value) => {
+    const __prev42 = __self39;
+    __self39 = value;
     return () => {
-      __self28 = __prev31;
+      __self39 = __prev42;
     };
   };
-  return __block29;
+  return __block40;
 })());
 a = ["a", "b", "c"];
 r = new RegExp("(\\d+)\\s+(?<name>\\w+)", "u");
 h = "leading\n";
 console.log(a[1], __rubyMatch(r, "123 abc")["name"], h);
-const __case32 = [1, 2, 3];
-const __pattern33 = (() => {
-  const __value = __case32;
+const __case43 = [1, 2, 3];
+const __pattern44 = (() => {
+  const __value = __case43;
   if (__value == null) return null;
-  const __bindings34 = {};
+  const __bindings45 = {};
   if (!Array.isArray(__value)) return null;
   if (__value.length < 1) return null;
-  const __elem35 = __value[0];
-  const a = __elem35;
-  __bindings34.a = a;
+  const __elem46 = __value[0];
+  const a = __elem46;
+  __bindings45.a = a;
   const rest = __value.slice(1);
-  __bindings34.rest = rest;
+  __bindings45.rest = rest;
   if (!(a > 0)) return null;
-  return __bindings34;
+  return __bindings45;
 })();
-if (__pattern33) {
-  const a = __pattern33.a;
-  const rest = __pattern33.rest;
+if (__pattern44) {
+  const a = __pattern44.a;
+  const rest = __pattern44.rest;
   [a, rest];
 }
 x = 1;
-const __case36 = { x: 1 };
-const __pattern37 = (() => {
-  const __value = __case36;
+const __case47 = { x: 1 };
+const __pattern48 = (() => {
+  const __value = __case47;
   if (__value == null) return null;
-  const __bindings38 = {};
+  const __bindings49 = {};
   if (typeof __value !== 'object') return null;
-  let __found40 = false;
-  let __prop39;
-  if (!__found40 && Object.prototype.hasOwnProperty.call(__value, "x")) {
-    __found40 = true;
-    __prop39 = __value["x"];
+  let __found51 = false;
+  let __prop50;
+  if (!__found51 && Object.prototype.hasOwnProperty.call(__value, "x")) {
+    __found51 = true;
+    __prop50 = __value["x"];
   }
-  if (!__found40 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("x"))) {
-    __found40 = true;
-    __prop39 = __value[Symbol.for("x")];
+  if (!__found51 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("x"))) {
+    __found51 = true;
+    __prop50 = __value[Symbol.for("x")];
   }
-  if (!__found40) return null;
-  if (__prop39 !== x) return null;
-  return __bindings38;
+  if (!__found51) return null;
+  if (__prop50 !== x) return null;
+  return __bindings49;
 })();
-if (__pattern37) {
+if (__pattern48) {
   "same";
 }
 MYCONST = Object.freeze(new new Struct("a")(1));
@@ -1140,33 +1265,33 @@ z = a = 1 ? "t" : "f";
 b = __rubyBinding();
 eval("1+1", b);
 __rubySend(new TracePoint("call", (() => {
-  let __self57 = this;
-  const __block58 = function(...__args59) {
+  let __self68 = this;
+  const __block69 = function(...__args70) {
     return (function(tp) {
-}).apply(__self57, __args59);
+}).apply(__self68, __args70);
   };
-  __block58.__rubyBind = (value) => {
-    const __prev60 = __self57;
-    __self57 = value;
+  __block69.__rubyBind = (value) => {
+    const __prev71 = __self68;
+    __self68 = value;
     return () => {
-      __self57 = __prev60;
+      __self68 = __prev71;
     };
   };
-  return __block58;
+  return __block69;
 })()), "enable", [], (() => {
-  let __self45 = this;
-  const __block46 = function(...__args47) {
+  let __self56 = this;
+  const __block57 = function(...__args58) {
     return (function() {
-}).apply(__self45, __args47);
+}).apply(__self56, __args58);
   };
-  __block46.__rubyBind = (value) => {
-    const __prev48 = __self45;
-    __self45 = value;
+  __block57.__rubyBind = (value) => {
+    const __prev59 = __self56;
+    __self56 = value;
     return () => {
-      __self45 = __prev48;
+      __self56 = __prev59;
     };
   };
-  return __block46;
+  return __block57;
 })());
 function multi(__block) {
   __block ? __block(1) : undefined;
@@ -1175,51 +1300,51 @@ function multi(__block) {
 if (typeof globalThis !== "undefined") { globalThis.multi = multi; }
 __rubySend([1, 2], "map", [__rubySymbolProc("to_s")], undefined);
 __rubySend(globalThis, "catch", ["k"], (() => {
-  let __self61 = this;
-  const __block62 = function(...__args63) {
+  let __self72 = this;
+  const __block73 = function(...__args74) {
     return (function() {
   return __rubySend(this, "throw", ["k", "val"], undefined);
-}).apply(__self61, __args63);
+}).apply(__self72, __args74);
   };
-  __block62.__rubyBind = (value) => {
-    const __prev64 = __self61;
-    __self61 = value;
+  __block73.__rubyBind = (value) => {
+    const __prev75 = __self72;
+    __self72 = value;
     return () => {
-      __self61 = __prev64;
+      __self72 = __prev75;
     };
   };
-  return __block62;
+  return __block73;
 })());
 __rubySend(__rubySend(1, "tap", [], (() => {
-  let __self81 = this;
-  const __block82 = function(...__args83) {
+  let __self92 = this;
+  const __block93 = function(...__args94) {
     return (function(v) {
   return v + 1;
-}).apply(__self81, __args83);
+}).apply(__self92, __args94);
   };
-  __block82.__rubyBind = (value) => {
-    const __prev84 = __self81;
-    __self81 = value;
+  __block93.__rubyBind = (value) => {
+    const __prev95 = __self92;
+    __self92 = value;
     return () => {
-      __self81 = __prev84;
+      __self92 = __prev95;
     };
   };
-  return __block82;
+  return __block93;
 })()), "then", [], (() => {
-  let __self69 = this;
-  const __block70 = function(...__args71) {
+  let __self80 = this;
+  const __block81 = function(...__args82) {
     return (function(v) {
   return v * 2;
-}).apply(__self69, __args71);
+}).apply(__self80, __args82);
   };
-  __block70.__rubyBind = (value) => {
-    const __prev72 = __self69;
-    __self69 = value;
+  __block81.__rubyBind = (value) => {
+    const __prev83 = __self80;
+    __self80 = value;
     return () => {
-      __self69 = __prev72;
+      __self80 = __prev83;
     };
   };
-  return __block70;
+  return __block81;
 })());
 console.log(__rubySend(__rubySend(__rubySplit("hello"), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined));
 console.log("----- 16th check -----");
@@ -1248,20 +1373,20 @@ class FileWorker {
 fs = new FileSystem("FS1");
 worker = new FileWorker("Alice");
 __rubySend(fs, "file_handler", [worker, "notes.txt", "Hello World !", (() => {
-  let __self85 = this;
-  const __block86 = function(...__args87) {
+  let __self96 = this;
+  const __block97 = function(...__args98) {
     return (function(h) {
   return __rubySend(this, "log", [h], undefined);
-}).apply(__self85, __args87);
+}).apply(__self96, __args98);
   };
-  __block86.__rubyBind = (value) => {
-    const __prev88 = __self85;
-    __self85 = value;
+  __block97.__rubyBind = (value) => {
+    const __prev99 = __self96;
+    __self96 = value;
     return () => {
-      __self85 = __prev88;
+      __self96 = __prev99;
     };
   };
-  return __block86;
+  return __block97;
 })()], undefined);
 console.log("----- 15th check -----");
 class Contexte {
@@ -1282,112 +1407,112 @@ Contexte.prototype["val3"] = function() { return this.__val3; };
 Contexte.prototype["val3="] = function(value) { this.__val3 = value; return value; };
 obj = new Contexte(10, 20, 30);
 __rubySend(obj, "exec", [], (() => {
-  let __self89 = this;
-  const __block90 = function(...__args91) {
+  let __self100 = this;
+  const __block101 = function(...__args102) {
     return (function() {
   console.log(`val  = ${__rubySend(this, "val", [], undefined)}`);
   console.log(`val2 = ${__rubySend(this, "val2", [], undefined)}`);
   return console.log(`val3 = ${__rubySend(this, "val3", [], undefined)}`);
-}).apply(__self89, __args91);
+}).apply(__self100, __args102);
   };
-  __block90.__rubyBind = (value) => {
-    const __prev92 = __self89;
-    __self89 = value;
+  __block101.__rubyBind = (value) => {
+    const __prev103 = __self100;
+    __self100 = value;
     return () => {
-      __self89 = __prev92;
+      __self100 = __prev103;
     };
   };
-  return __block90;
+  return __block101;
 })());
 console.log("----- 14th check -----");
-function f(...__args93) {
-  const __blockCandidate94 = __args93.length ? __args93[__args93.length - 1] : undefined;
-  const blk = typeof __blockCandidate94 === 'function' ? __blockCandidate94 : undefined;
-  if (typeof __blockCandidate94 === 'function') __args93.pop();
-  let __kwargs95 = {};
-  if (__args93.length) {
-    const __kwCandidate96 = __args93[__args93.length - 1];
-    if (__kwCandidate96 && typeof __kwCandidate96 === 'object' && !Array.isArray(__kwCandidate96)) {
-      __kwargs95 = __kwCandidate96;
-      __args93.pop();
+function f(...__args104) {
+  const __blockCandidate105 = __args104.length ? __args104[__args104.length - 1] : undefined;
+  const blk = typeof __blockCandidate105 === 'function' ? __blockCandidate105 : undefined;
+  if (typeof __blockCandidate105 === 'function') __args104.pop();
+  let __kwargs106 = {};
+  if (__args104.length) {
+    const __kwCandidate107 = __args104[__args104.length - 1];
+    if (__kwCandidate107 && typeof __kwCandidate107 === 'object' && !Array.isArray(__kwCandidate107)) {
+      __kwargs106 = __kwCandidate107;
+      __args104.pop();
     } else if (true) {
-      __kwargs95 = {};
+      __kwargs106 = {};
     } else {
-      __kwargs95 = undefined;
+      __kwargs106 = undefined;
     }
   }
-  if (__kwargs95 === undefined) __kwargs95 = {};
-  const a = __args93.length ? __args93.shift() : undefined;
-  let b = __args93.length ? __args93.shift() : undefined;
+  if (__kwargs106 === undefined) __kwargs106 = {};
+  const a = __args104.length ? __args104.shift() : undefined;
+  let b = __args104.length ? __args104.shift() : undefined;
   if (b === undefined) b = 2;
-  const rest = __args93.splice(0);
-  const __kwUsed97 = new Set();
-  if (__kwargs95 === undefined || !Object.prototype.hasOwnProperty.call(__kwargs95, "c")) {
+  const rest = __args104.splice(0);
+  const __kwUsed108 = new Set();
+  if (__kwargs106 === undefined || !Object.prototype.hasOwnProperty.call(__kwargs106, "c")) {
     throw new Error("ArgumentError: missing keyword: c");
   }
-  const c = __kwargs95["c"];
-  __kwUsed97.add("c");
-  let d = __kwargs95 && Object.prototype.hasOwnProperty.call(__kwargs95, "d") ? __kwargs95["d"] : 4;
-  __kwUsed97.add("d");
+  const c = __kwargs106["c"];
+  __kwUsed108.add("c");
+  let d = __kwargs106 && Object.prototype.hasOwnProperty.call(__kwargs106, "d") ? __kwargs106["d"] : 4;
+  __kwUsed108.add("d");
   const kw = {};
-  if (__kwargs95 && typeof __kwargs95 === 'object') {
-    for (const __key in __kwargs95) {
-      if (!Object.prototype.hasOwnProperty.call(__kwargs95, __key)) continue;
-      if (__kwUsed97.has(__key)) continue;
-      kw[__key] = __kwargs95[__key];
+  if (__kwargs106 && typeof __kwargs106 === 'object') {
+    for (const __key in __kwargs106) {
+      if (!Object.prototype.hasOwnProperty.call(__kwargs106, __key)) continue;
+      if (__kwUsed108.has(__key)) continue;
+      kw[__key] = __kwargs106[__key];
     }
   }
   return [a, b, rest, c, d, kw, __rubyClassName(blk)];
 }
 if (typeof globalThis !== "undefined") { globalThis.f = f; }
 f(1, 3, 4, 5, { c: 7, x: 9 }, (() => {
-  let __self98 = this;
-  const __block99 = function(...__args100) {
+  let __self109 = this;
+  const __block110 = function(...__args111) {
     return (function() {
-}).apply(__self98, __args100);
+}).apply(__self109, __args111);
   };
-  __block99.__rubyBind = (value) => {
-    const __prev101 = __self98;
-    __self98 = value;
+  __block110.__rubyBind = (value) => {
+    const __prev112 = __self109;
+    __self109 = value;
     return () => {
-      __self98 = __prev101;
+      __self109 = __prev112;
     };
   };
-  return __block99;
+  return __block110;
 })());
-function g(...__args102) {
-  const __blockCandidate103 = __args102.length ? __args102[__args102.length - 1] : undefined;
-  const __block = typeof __blockCandidate103 === 'function' ? __blockCandidate103 : undefined;
-  if (typeof __blockCandidate103 === 'function') __args102.pop();
-  let __kwargs104 = undefined;
-  if (__args102.length) {
-    const __kwCandidate105 = __args102[__args102.length - 1];
-    if (__kwCandidate105 && typeof __kwCandidate105 === 'object' && !Array.isArray(__kwCandidate105)) {
-      __kwargs104 = __kwCandidate105;
-      __args102.pop();
+function g(...__args113) {
+  const __blockCandidate114 = __args113.length ? __args113[__args113.length - 1] : undefined;
+  const __block = typeof __blockCandidate114 === 'function' ? __blockCandidate114 : undefined;
+  if (typeof __blockCandidate114 === 'function') __args113.pop();
+  let __kwargs115 = undefined;
+  if (__args113.length) {
+    const __kwCandidate116 = __args113[__args113.length - 1];
+    if (__kwCandidate116 && typeof __kwCandidate116 === 'object' && !Array.isArray(__kwCandidate116)) {
+      __kwargs115 = __kwCandidate116;
+      __args113.pop();
     } else if (false) {
     } else {
-      __kwargs104 = undefined;
+      __kwargs115 = undefined;
     }
   }
-  const __forwardArgs106 = __args102.slice();
-  return __rubySend(globalThis, "f", (__kwargs104 === undefined ? __forwardArgs106.slice() : __forwardArgs106.concat(__kwargs104)), __block);
+  const __forwardArgs117 = __args113.slice();
+  return __rubySend(globalThis, "f", (__kwargs115 === undefined ? __forwardArgs117.slice() : __forwardArgs117.concat(__kwargs115)), __block);
 }
 if (typeof globalThis !== "undefined") { globalThis.g = g; }
 console.log(g(1, 3, 4, 5, { c: 7, x: 9 }, (() => {
-  let __self111 = this;
-  const __block112 = function(...__args113) {
+  let __self122 = this;
+  const __block123 = function(...__args124) {
     return (function() {
-}).apply(__self111, __args113);
+}).apply(__self122, __args124);
   };
-  __block112.__rubyBind = (value) => {
-    const __prev114 = __self111;
-    __self111 = value;
+  __block123.__rubyBind = (value) => {
+    const __prev125 = __self122;
+    __self122 = value;
     return () => {
-      __self111 = __prev114;
+      __self122 = __prev125;
     };
   };
-  return __block112;
+  return __block123;
 })()));
 console.log("----- 13th check -----");
 function str_concat(str) {
@@ -1420,7 +1545,7 @@ const StringPredicates = {};
     let attr;
     let op;
     let op_map;
-    (() => { const __multi115 = __rubyMatch(this, new RegExp("^(\\w+)_(gt|lt|eq)$", ""))?.captures(); [attr, op] = __rubyMultiAssign(__multi115, 2); return __multi115; })();
+    (() => { const __multi126 = __rubyMatch(this, new RegExp("^(\\w+)_(gt|lt|eq)$", ""))?.captures(); [attr, op] = __rubyMultiAssign(__multi126, 2); return __multi126; })();
     if (!attr) {
       return null;
     }
@@ -1438,26 +1563,26 @@ class Query {
     let attr;
     let op;
     let value;
-    const __blockCandidate116 = args.length ? args[args.length - 1] : undefined;
-    const __block = typeof __blockCandidate116 === 'function' ? __blockCandidate116 : undefined;
-    if (typeof __blockCandidate116 === 'function') args.pop();
-    if ((() => { const __multi117 = __rubySend(String(name), "split_predicate", [], undefined); [attr, op] = __rubyMultiAssign(__multi117, 2); return __multi117; })()) {
+    const __blockCandidate127 = args.length ? args[args.length - 1] : undefined;
+    const __block = typeof __blockCandidate127 === 'function' ? __blockCandidate127 : undefined;
+    if (typeof __blockCandidate127 === 'function') args.pop();
+    if ((() => { const __multi128 = __rubySend(String(name), "split_predicate", [], undefined); [attr, op] = __rubyMultiAssign(__multi128, 2); return __multi128; })()) {
       value = __rubyFetch(args, 0);
       return this.where((() => {
-  let __self118 = this;
-  const __block119 = function(...__args120) {
+  let __self129 = this;
+  const __block130 = function(...__args131) {
     return (function(row) {
         return __rubyPublicSend(row[attr] || row[String(attr)], op, value);
-      }).apply(__self118, __args120);
+      }).apply(__self129, __args131);
   };
-  __block119.__rubyBind = (value) => {
-    const __prev121 = __self118;
-    __self118 = value;
+  __block130.__rubyBind = (value) => {
+    const __prev132 = __self129;
+    __self129 = value;
     return () => {
-      __self118 = __prev121;
+      __self129 = __prev132;
     };
   };
-  return __block119;
+  return __block130;
 })());
     }
     return (() => {   const __superMethod = super.method_missing;   if (typeof __superMethod !== 'function') {     throw new Error("NoMethodError: undefined method " + String(arguments[0]) + " for " + String(this));   }   return __superMethod.apply(this, arguments); })();
@@ -1482,113 +1607,113 @@ Query.prototype["to_a"] = function(...args) {
 rows = Object.freeze([{ name: "Alice", age: 30, role: "dev" }, { "name": "Bob", "age": 25, "role": "ops" }, { name: "Cara", age: 35, role: "dev" }]);
 q = new Query(rows);
 result = __rubySend(__rubySend(__rubySend(q, "age_gt", [28], undefined), "where", [], (() => {
-  let __self134 = this;
-  const __block135 = function(...__args136) {
+  let __self145 = this;
+  const __block146 = function(...__args147) {
     return (function(_1) {
   return (_1["role"] || _1["role"]) === "dev";
-}).apply(__self134, __args136);
+}).apply(__self145, __args147);
   };
-  __block135.__rubyBind = (value) => {
-    const __prev137 = __self134;
-    __self134 = value;
+  __block146.__rubyBind = (value) => {
+    const __prev148 = __self145;
+    __self145 = value;
     return () => {
-      __self134 = __prev137;
+      __self145 = __prev148;
     };
   };
-  return __block135;
+  return __block146;
 })()), "to_a", [], undefined);
 result.forEach((row) => {
-  const __case159 = row;
-  const __pattern160 = (() => {
-    const __value = __case159;
+  const __case170 = row;
+  const __pattern171 = (() => {
+    const __value = __case170;
     if (__value == null) return null;
-    const __bindings161 = {};
+    const __bindings172 = {};
     if (typeof __value !== 'object') return null;
-    let __found163 = false;
-    let __prop162;
-    if (!__found163 && Object.prototype.hasOwnProperty.call(__value, "name")) {
-      __found163 = true;
-      __prop162 = __value["name"];
+    let __found174 = false;
+    let __prop173;
+    if (!__found174 && Object.prototype.hasOwnProperty.call(__value, "name")) {
+      __found174 = true;
+      __prop173 = __value["name"];
     }
-    if (!__found163 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("name"))) {
-      __found163 = true;
-      __prop162 = __value[Symbol.for("name")];
+    if (!__found174 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("name"))) {
+      __found174 = true;
+      __prop173 = __value[Symbol.for("name")];
     }
-    if (!__found163) return null;
-    const name = __prop162;
-    __bindings161.name = name;
-    let __found165 = false;
-    let __prop164;
-    if (!__found165 && Object.prototype.hasOwnProperty.call(__value, "age")) {
-      __found165 = true;
-      __prop164 = __value["age"];
+    if (!__found174) return null;
+    const name = __prop173;
+    __bindings172.name = name;
+    let __found176 = false;
+    let __prop175;
+    if (!__found176 && Object.prototype.hasOwnProperty.call(__value, "age")) {
+      __found176 = true;
+      __prop175 = __value["age"];
     }
-    if (!__found165 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("age"))) {
-      __found165 = true;
-      __prop164 = __value[Symbol.for("age")];
+    if (!__found176 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("age"))) {
+      __found176 = true;
+      __prop175 = __value[Symbol.for("age")];
     }
-    if (!__found165) return null;
-    const age = __prop164;
-    __bindings161.age = age;
-    let __found167 = false;
-    let __prop166;
-    if (!__found167 && Object.prototype.hasOwnProperty.call(__value, "role")) {
-      __found167 = true;
-      __prop166 = __value["role"];
+    if (!__found176) return null;
+    const age = __prop175;
+    __bindings172.age = age;
+    let __found178 = false;
+    let __prop177;
+    if (!__found178 && Object.prototype.hasOwnProperty.call(__value, "role")) {
+      __found178 = true;
+      __prop177 = __value["role"];
     }
-    if (!__found167 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("role"))) {
-      __found167 = true;
-      __prop166 = __value[Symbol.for("role")];
+    if (!__found178 && Object.prototype.hasOwnProperty.call(__value, Symbol.for("role"))) {
+      __found178 = true;
+      __prop177 = __value[Symbol.for("role")];
     }
-    if (!__found167) return null;
-    const role = __prop166;
-    __bindings161.role = role;
-    return __bindings161;
+    if (!__found178) return null;
+    const role = __prop177;
+    __bindings172.role = role;
+    return __bindings172;
   })();
-  const __pattern168 = (() => {
-    const __value = __case159;
+  const __pattern179 = (() => {
+    const __value = __case170;
     if (__value == null) return null;
-    const __bindings169 = {};
+    const __bindings180 = {};
     if (typeof __value !== 'object') return null;
-    let __found171 = false;
-    let __prop170;
-    if (!__found171 && Object.prototype.hasOwnProperty.call(__value, "name")) {
-      __found171 = true;
-      __prop170 = __value["name"];
+    let __found182 = false;
+    let __prop181;
+    if (!__found182 && Object.prototype.hasOwnProperty.call(__value, "name")) {
+      __found182 = true;
+      __prop181 = __value["name"];
     }
-    if (!__found171) return null;
-    const name = __prop170;
-    __bindings169.name = name;
-    let __found173 = false;
-    let __prop172;
-    if (!__found173 && Object.prototype.hasOwnProperty.call(__value, "age")) {
-      __found173 = true;
-      __prop172 = __value["age"];
+    if (!__found182) return null;
+    const name = __prop181;
+    __bindings180.name = name;
+    let __found184 = false;
+    let __prop183;
+    if (!__found184 && Object.prototype.hasOwnProperty.call(__value, "age")) {
+      __found184 = true;
+      __prop183 = __value["age"];
     }
-    if (!__found173) return null;
-    const age = __prop172;
-    __bindings169.age = age;
-    let __found175 = false;
-    let __prop174;
-    if (!__found175 && Object.prototype.hasOwnProperty.call(__value, "role")) {
-      __found175 = true;
-      __prop174 = __value["role"];
+    if (!__found184) return null;
+    const age = __prop183;
+    __bindings180.age = age;
+    let __found186 = false;
+    let __prop185;
+    if (!__found186 && Object.prototype.hasOwnProperty.call(__value, "role")) {
+      __found186 = true;
+      __prop185 = __value["role"];
     }
-    if (!__found175) return null;
-    const role = __prop174;
-    __bindings169.role = role;
-    return __bindings169;
+    if (!__found186) return null;
+    const role = __prop185;
+    __bindings180.role = role;
+    return __bindings180;
   })();
-  if (__pattern160) {
-    const name = __pattern160.name;
-    const age = __pattern160.age;
-    const role = __pattern160.role;
+  if (__pattern171) {
+    const name = __pattern171.name;
+    const age = __pattern171.age;
+    const role = __pattern171.role;
     return console.log(`${name} (${age}) — ${role}`);
   }
-  else if (__pattern168) {
-    const name = __pattern168.name;
-    const age = __pattern168.age;
-    const role = __pattern168.role;
+  else if (__pattern179) {
+    const name = __pattern179.name;
+    const age = __pattern179.age;
+    const role = __pattern179.role;
     return console.log(`${name} (${age}) — ${role}`);
   }
 });
@@ -1615,55 +1740,55 @@ to_capitalize = (str) => {
   return __rubySend(__rubySend(__rubySplit(str), "map", [__rubySymbolProc("capitalize")], undefined), "join", [" "], undefined);
 };
 remove_short = (() => {
-  let __self212 = this;
-  const __block213 = function(...__args214) {
+  let __self223 = this;
+  const __block224 = function(...__args225) {
     return (function(str) {
   return __rubySend(__rubySplit(str).filter((() => {
-  let __self208 = this;
-  const __block209 = function(...__args210) {
+  let __self219 = this;
+  const __block220 = function(...__args221) {
     return (function(_1) {
     return _1.length > 3;
-  }).apply(__self208, __args210);
+  }).apply(__self219, __args221);
   };
-  __block209.__rubyBind = (value) => {
-    const __prev211 = __self208;
-    __self208 = value;
+  __block220.__rubyBind = (value) => {
+    const __prev222 = __self219;
+    __self219 = value;
     return () => {
-      __self208 = __prev211;
+      __self219 = __prev222;
     };
   };
-  return __block209;
+  return __block220;
 })()), "join", [" "], undefined);
-}).apply(__self212, __args214);
+}).apply(__self223, __args225);
   };
-  __block213.__rubyBind = (value) => {
-    const __prev215 = __self212;
-    __self212 = value;
+  __block224.__rubyBind = (value) => {
+    const __prev226 = __self223;
+    __self223 = value;
     return () => {
-      __self212 = __prev215;
+      __self223 = __prev226;
     };
   };
-  return __block213;
+  return __block224;
 })();
 reverse_text = (str) => {
   return __rubyReverse(str);
 };
 text = "bonjour à tous les amis du ruby";
 processed = __rubySend(__rubySend(__rubySend(__rubySend(__rubySend(new TextProcessor(text), "transform", [], (() => {
-  let __self1236 = this;
-  const __block1237 = function(...__args1238) {
+  let __self1247 = this;
+  const __block1248 = function(...__args1249) {
     return (function(_1) {
   return __rubyStrip(_1);
-}).apply(__self1236, __args1238);
+}).apply(__self1247, __args1249);
   };
-  __block1237.__rubyBind = (value) => {
-    const __prev1239 = __self1236;
-    __self1236 = value;
+  __block1248.__rubyBind = (value) => {
+    const __prev1250 = __self1247;
+    __self1247 = value;
     return () => {
-      __self1236 = __prev1239;
+      __self1247 = __prev1250;
     };
   };
-  return __block1237;
+  return __block1248;
 })()), "apply", [to_capitalize], undefined), "apply", [remove_short], undefined), "apply", [reverse_text], undefined), "result", [], undefined);
 console.log(processed);
 console.log("----- 8th check -----");
@@ -1702,20 +1827,20 @@ class Model {
 class User extends Model {
 }
 User.attr_with_callback("email", (() => {
-  let __self1248 = this;
-  const __block1249 = function(...__args1250) {
+  let __self1259 = this;
+  const __block1260 = function(...__args1261) {
     return (function(new_email) {
     return console.log(`📩 Email mis à jour: ${new_email}`);
-  }).apply(__self1248, __args1250);
+  }).apply(__self1259, __args1261);
   };
-  __block1249.__rubyBind = (value) => {
-    const __prev1251 = __self1248;
-    __self1248 = value;
+  __block1260.__rubyBind = (value) => {
+    const __prev1262 = __self1259;
+    __self1259 = value;
     return () => {
-      __self1248 = __prev1251;
+      __self1259 = __prev1262;
     };
   };
-  return __block1249;
+  return __block1260;
 })());
 u = new User();
 u["email="]("alice@example.com");
@@ -1771,20 +1896,20 @@ class Universe {
   }
 }
 __rubySend(Universe, "on", ["hello"], (() => {
-  let __self1272 = this;
-  const __block1273 = function(...__args1274) {
+  let __self1283 = this;
+  const __block1284 = function(...__args1285) {
     return (function(params) {
   return console.log(`Message reçu: ${params["content"]}`);
-}).apply(__self1272, __args1274);
+}).apply(__self1283, __args1285);
   };
-  __block1273.__rubyBind = (value) => {
-    const __prev1275 = __self1272;
-    __self1272 = value;
+  __block1284.__rubyBind = (value) => {
+    const __prev1286 = __self1283;
+    __self1283 = value;
     return () => {
-      __self1272 = __prev1275;
+      __self1283 = __prev1286;
     };
   };
-  return __block1273;
+  return __block1284;
 })());
 __rubySend(Universe, "server_receiver", [{ message_id: "hello", content: "Salut depuis Universe 👽" }], undefined);
 function avec_trois(val, val2, val3, __block) {
@@ -1794,20 +1919,20 @@ function avec_trois(val, val2, val3, __block) {
 }
 if (typeof globalThis !== "undefined") { globalThis.avec_trois = avec_trois; }
 avec_trois(1, 2, 3, (() => {
-  let __self1276 = this;
-  const __block1277 = function(...__args1278) {
+  let __self1287 = this;
+  const __block1288 = function(...__args1289) {
     return (function(a, b) {
   return console.log(`a = ${a}, b = ${b}`);
-}).apply(__self1276, __args1278);
+}).apply(__self1287, __args1289);
   };
-  __block1277.__rubyBind = (value) => {
-    const __prev1279 = __self1276;
-    __self1276 = value;
+  __block1288.__rubyBind = (value) => {
+    const __prev1290 = __self1287;
+    __self1287 = value;
     return () => {
-      __self1276 = __prev1279;
+      __self1287 = __prev1290;
     };
   };
-  return __block1277;
+  return __block1288;
 })());
 console.log("----- 1st check -----");
 class Greeter {
