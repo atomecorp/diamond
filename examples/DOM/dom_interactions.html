@@ -9,6 +9,20 @@
     </style>
   </head>
   <body>
+    <script>
+      if (typeof window.JS === 'undefined') {
+        window.JS = {
+          global: function() {
+            if (typeof globalThis !== 'undefined') return globalThis;
+            if (typeof window !== 'undefined') return window;
+            return {};
+          },
+          eval: function(code) {
+            return (function(execCode) { return eval(execCode); })(code);
+          }
+        };
+      }
+    </script>
     <script src="../inline_converter/diamond.browser.js"></script>
     <script>
       (function(){

@@ -22,8 +22,11 @@ box['style']['background'] = 'linear-gradient(135deg, #6EE7F9 0%, #9333EA 100%)'
 box['style']['position'] = 'relative'
 box['style']['cursor'] = 'grab'
 box['style']['userSelect'] = 'none'
-box['style']['transform'] = 'translate(0px, 0px)'
+box['style']['touchAction'] = 'none'
+box['style']['willChange'] = 'transform'
+box['style']['transform'] = 'translate3d(0px, 0px, 0)'
 box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
+default_transition = box['style']['transition']
 container.appendChild(box)
 
 label = document.createElement('div')
@@ -61,99 +64,171 @@ box.addEventListener('touchstart', ->(e) { console.log('tap') })
 
 # Drag logic
 dragging = false
+dragPointerId = nil
 startX = 0.0
 startY = 0.0
 currentX = 0.0
 currentY = 0.0
+pendingFrame = false
 
-startDrag = ->(clientX, clientY) {
+window_obj = nil
+begin
+  window_obj = JS.global[:window]
+rescue NameError
+  window_obj = nil
+end
+raf_fn = nil
+if window_obj
+  raf_candidate = window_obj[:requestAnimationFrame]
+  raf_fn = raf_candidate if raf_candidate
+end
+
+apply_transform = nil
+apply_transform = proc do |_timestamp|
+  pendingFrame = false
+  box['style']['transform'] = "translate3d(#{currentX}px, #{currentY}px, 0)"
+end
+
+schedule_transform = proc do
+  if raf_fn
+    unless pendingFrame
+      pendingFrame = true
+      raf_fn.call(->(ts) { apply_transform.call(ts) })
+    end
+  else
+    apply_transform.call(nil)
+  end
+end
+
+base_shadow = box['style']['boxShadow']
+drag_shadow = '0 8px 18px rgba(0,0,0,.22)'
+drop_check = nil
+
+startDrag = ->(event) {
   dragging = true
+  dragPointerId = event['pointerId']
+  if box['setPointerCapture']
+    box['setPointerCapture'].call(dragPointerId)
+  end
   box['style']['cursor'] = 'grabbing'
-  box['style']['transition'] = 'none'
-  startX = clientX - currentX
-  startY = clientY - currentY
+  box['style']['boxShadow'] = drag_shadow
+  box['style']['transition'] = 'transform 0s, width .2s ease, height .2s ease, box-shadow .2s ease'
+  startX = event['clientX'] - currentX
+  startY = event['clientY'] - currentY
+  if event['preventDefault']
+    event['preventDefault'].call()
+  end
 }
 
-moveDrag = ->(clientX, clientY) {
-  return unless dragging
-  newX = clientX - startX
-  newY = clientY - startY
-  currentX = newX
-  currentY = newY
-  box['style']['transform'] = "translate(#{currentX}px, #{currentY}px)"
+moveDrag = ->(event) {
+  if dragging && dragPointerId && event['pointerId'] == dragPointerId
+    currentX = event['clientX'] - startX
+    currentY = event['clientY'] - startY
+    schedule_transform.call
+  end
 }
 
 stopDrag = -> {
-  dragging = false
-  box['style']['cursor'] = 'grab'
-  box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
+  if dragging
+    dragging = false
+    if dragPointerId && box['releasePointerCapture']
+      box['releasePointerCapture'].call(dragPointerId)
+    end
+    dragPointerId = nil
+    box['style']['cursor'] = 'grab'
+    box['style']['boxShadow'] = base_shadow
+    box['style']['transition'] = default_transition
+    schedule_transform.call
+  end
 }
 
-# Mouse drag
-box.addEventListener('mousedown', ->(e) {
-  startDrag.call(e['clientX'], e['clientY'])
-  e['preventDefault'].call()
+box.addEventListener('pointerdown', ->(event) {
+  if !resizing
+    button = event['button']
+    if button == nil || button == 0
+      startDrag.call(event)
+    end
+  end
 })
-document.addEventListener('mousemove', ->(e) {
-  moveDrag.call(e['clientX'], e['clientY'])
-})
-document.addEventListener('mouseup', ->(e) { stopDrag.call() })
-
-# Touch drag
-box.addEventListener('touchstart', ->(e) {
-  t = e['touches'][0]
-  startDrag.call(t['clientX'], t['clientY'])
-})
-document.addEventListener('touchmove', ->(e) {
-  t = e['touches'][0]
-  moveDrag.call(t['clientX'], t['clientY'])
-})
-document.addEventListener('touchend', ->(e) { stopDrag.call() })
 
 # Resize logic
 resizing = false
+resizePointerId = nil
 startW = 0
 startH = 0
 resizeOffsetX = 0.0
 resizeOffsetY = 0.0
-prevTransition = ''
+resizePrevTransition = ''
 
-handle.addEventListener('mousedown', ->(e) {
+handle.addEventListener('pointerdown', ->(event) {
   resizing = true
-  startX = e['clientX']
-  startY = e['clientY']
+  resizePointerId = event['pointerId']
+  if handle['setPointerCapture']
+    handle['setPointerCapture'].call(resizePointerId)
+  end
+  startX = event['clientX']
+  startY = event['clientY']
   startW = box['offsetWidth']
   startH = box['offsetHeight']
   resizeOffsetX = currentX
   resizeOffsetY = currentY
-  prevTransition = box['style']['transition'] || ''
-
+  resizePrevTransition = box['style']['transition'] || default_transition
   box['style']['transition'] = 'none'
-  e['stopPropagation'].call()
-  e['preventDefault'].call()
+  box['style']['boxShadow'] = drag_shadow
+  if event['stopPropagation']
+    event['stopPropagation'].call()
+  end
+  if event['preventDefault']
+    event['preventDefault'].call()
+  end
 })
 
-document.addEventListener('mousemove', ->(e) {
-  if resizing
-    dw = e['clientX'] - startX
-    dh = e['clientY'] - startY
+document.addEventListener('pointermove', ->(event) {
+  if resizing && resizePointerId && event['pointerId'] == resizePointerId
+    dw = event['clientX'] - startX
+    dh = event['clientY'] - startY
     newW = [100.0, startW.to_f + dw].max
     newH = [80.0, startH.to_f + dh].max
     currentX = resizeOffsetX + ((newW - startW.to_f) / 2.0)
     currentY = resizeOffsetY + ((newH - startH.to_f) / 2.0)
     box['style']['width'] = "#{newW.to_i}px"
     box['style']['height'] = "#{newH.to_i}px"
-    box['style']['transform'] = "translate(#{currentX}px, #{currentY}px)"
+    schedule_transform.call
+  elsif dragging && dragPointerId && event['pointerId'] == dragPointerId
+    moveDrag.call(event)
   end
 })
-document.addEventListener('mouseup', ->(e) {
-  if resizing
-    resizing = false
-    if prevTransition == ''
-      box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
-    else
-      box['style']['transition'] = prevTransition
+
+cleanup_resize = -> {
+  resizing = false
+  if handle['releasePointerCapture'] && resizePointerId
+    handle['releasePointerCapture'].call(resizePointerId)
+  end
+  resizePointerId = nil
+  box['style']['transition'] = resizePrevTransition || default_transition
+  box['style']['boxShadow'] = base_shadow
+  schedule_transform.call
+}
+
+document.addEventListener('pointerup', ->(event) {
+  if resizing && resizePointerId && event['pointerId'] == resizePointerId
+    cleanup_resize.call
+    if event['preventDefault']
+      event['preventDefault'].call()
     end
+  elsif dragging && dragPointerId && event['pointerId'] == dragPointerId
+    stopDrag.call
+    if drop_check
+      drop_check.call(event['clientX'], event['clientY'])
+    end
+  end
+})
+
+document.addEventListener('pointercancel', ->(event) {
+  if resizing && resizePointerId && event['pointerId'] == resizePointerId
+    cleanup_resize.call
+  elsif dragging && dragPointerId && event['pointerId'] == dragPointerId
+    stopDrag.call
   end
 })
 
@@ -178,24 +253,11 @@ isOver = ->(el, x, y) {
   x >= r['left'] && x <= r['right'] && y >= r['top'] && y <= r['bottom']
 }
 
-document.addEventListener('mouseup', ->(e) {
-  if isOver.call(dropzone, e['clientX'], e['clientY'])
+drop_check = ->(clientX, clientY) {
+  if isOver.call(dropzone, clientX, clientY)
     currentX = 20
     currentY = 20
-    box['style']['transform'] = 'translate(20px, 20px)'
+    schedule_transform.call
     console.log('dropped')
   end
-})
-
-document.addEventListener('touchend', ->(e) {
-  changed = e['changedTouches']
-  if changed && changed['length'] > 0
-    t = changed[0]
-    if isOver.call(dropzone, t['clientX'], t['clientY'])
-      currentX = 20
-      currentY = 20
-      box['style']['transform'] = 'translate(20px, 20px)'
-      console.log('dropped')
-    end
-  end
-})
+}

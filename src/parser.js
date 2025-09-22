@@ -22,6 +22,7 @@ class Parser {
     if (this.match('KEYWORD', 'class')) return this.parseClassDefinition();
     if (this.match('KEYWORD', 'module')) return this.parseModuleDeclaration();
     if (this.match('KEYWORD', 'if')) return this.parseIfStatement();
+    if (this.match('KEYWORD', 'unless')) return this.parseUnlessStatement();
     if (this.match('KEYWORD', 'while')) return this.parseWhileStatement();
     if (this.match('KEYWORD', 'loop')) return this.parseLoopStatement();
     if (this.match('KEYWORD', 'case')) return this.parseCaseStatement();
@@ -321,6 +322,33 @@ class Parser {
       test,
       consequent: { type: 'BlockStatement', body: consequent },
       alternate
+    };
+  }
+
+  parseUnlessStatement() {
+    const test = this.parseExpression();
+    this.consumeOptionalThen();
+    this.consumeStatementTerminator();
+    const mainBody = this.parseBlock(['else', 'end']);
+
+    let elseBody = null;
+    if (this.match('KEYWORD', 'else')) {
+      this.consumeStatementTerminator();
+      elseBody = this.parseBlock(['end']);
+    }
+
+    this.consume('KEYWORD', 'end', "Expected 'end' to close unless statement");
+
+    const alternateBlock = { type: 'BlockStatement', body: mainBody };
+    const consequentBlock = elseBody
+      ? { type: 'BlockStatement', body: elseBody }
+      : { type: 'BlockStatement', body: [] };
+
+    return {
+      type: 'IfStatement',
+      test,
+      consequent: consequentBlock,
+      alternate: alternateBlock
     };
   }
 
