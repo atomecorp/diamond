@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ruby DOM Interactions (Transpiled)</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <script src="../inline_converter/diamond.browser.js"></script>
+    <script>
+      (function(){
+        if (!window.Diamond || typeof window.Diamond.transpile !== 'function') {
+          document.body.textContent = 'Build the browser bundle first: npm i -D esbuild && node scripts/build-browser.js';
+          return;
+        }
+        fetch('./dom_interactions.rb')
+          .then(r => r.text())
+          .then(rb => {
+            const out = Diamond.transpile(rb);
+            // eslint-disable-next-line no-new-func
+            new Function(out.code)();
+          })
+          .catch(e => {
+            console.error(e);
+            document.body.textContent = 'Failed to load example: ' + (e && e.message ? e.message : e);
+          });
+      })();
+    </script>
+  </body>
+</html>
