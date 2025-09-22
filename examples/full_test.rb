@@ -1,3 +1,10 @@
+# JS bridge demo
+JS.eval("console.log('Hello from Ruby via JS.eval!')")
+factor = 7
+JS.eval("const squared = #{factor} * #{factor}; console.log('Squared via JS code:', squared)")
+tag_value = 'ruby-bridge'
+JS.global[:document][:body][:setAttribute].call('data-from-ruby', tag_value)
+
 # UI demo: create a styled div with gradient + shadow, and wire interactions
 
 # Container full-screen with gradient background

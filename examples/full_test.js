@@ -17,6 +17,7 @@ let drag_shadow;
 let dragging;
 let drop_check;
 let dropzone;
+let factor;
 let fs;
 let h;
 let handle;
@@ -52,6 +53,7 @@ let startX;
 let startY;
 let stopDrag;
 let t;
+let tag_value;
 let text;
 let to_capitalize;
 let u;
@@ -121,6 +123,20 @@ const __rubyClassName = (value) => {
   }
   return typeof value;
 };
+
+const __rubyJS = (() => {
+  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : {});
+  return {
+    eval(code) {
+      const source = String(code ?? "");
+      const fn = new Function(source);
+      return fn();
+    },
+    global() {
+      return root;
+    }
+  };
+})();
 
 const __rubyIvarName = (name) => {
   const str = String(name ?? "");
@@ -710,6 +726,11 @@ const __rubyRaise = (...args) => {
   throw new Error(String(first));
 };
 
+__rubySend(__rubyJS, "eval", ["console.log('Hello from Ruby via JS.eval!')"], undefined);
+factor = 7;
+__rubySend(__rubyJS, "eval", [`const squared = ${factor} * ${factor}; console.log('Squared via JS code:', squared)`], undefined);
+tag_value = "ruby-bridge";
+__rubySend(__rubyJS, "global", [], undefined)["document"]["body"]["setAttribute"]("data-from-ruby", tag_value);
 container = __rubySend(document, "createElement", ["div"], undefined);
 container["style"]["width"] = "100%";
 container["style"]["height"] = "100vh";
@@ -778,7 +799,7 @@ window_obj = null;
   let __handled2 = false;
   try {
     __result1 = (() => {
-    return window_obj = __rubySend(JS, "global", [], undefined)["window"];
+    return window_obj = __rubySend(__rubyJS, "global", [], undefined)["window"];
   }).call(this);
   } catch (__error3) {
     if (!__handled2 && __rubyRescueMatch(__error3, ["NameError"])) {

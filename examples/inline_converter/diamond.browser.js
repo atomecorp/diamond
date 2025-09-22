@@ -2073,6 +2073,22 @@ var Diamond = (() => {
             lines.push(...typeLogic);
             lines.push("};");
           }
+          if (this.runtimeHelpers.has("jsBridge")) {
+            if (lines.length) lines.push("");
+            lines.push("const __rubyJS = (() => {");
+            lines.push('  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : {});');
+            lines.push("  return {");
+            lines.push("    eval(code) {");
+            lines.push('      const source = String(code ?? "");');
+            lines.push("      const fn = new Function(source);");
+            lines.push("      return fn();");
+            lines.push("    },");
+            lines.push("    global() {");
+            lines.push("      return root;");
+            lines.push("    }");
+            lines.push("  };");
+            lines.push("})();");
+          }
           if (this.runtimeHelpers.has("ivarName")) {
             if (lines.length) lines.push("");
             lines.push("const __rubyIvarName = (name) => {");
@@ -3508,6 +3524,10 @@ var Diamond = (() => {
                 if (name === "binding") {
                   this.requireRuntime("bindingHelper");
                   return "__rubyBinding()";
+                }
+                if (name === "JS") {
+                  this.requireRuntime("jsBridge");
+                  return "__rubyJS";
                 }
                 const runtimeConstants = {
                   Thread: "thread",
