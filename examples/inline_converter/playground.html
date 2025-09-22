@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ruby → JS Playground (Offline Ready)</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #111827;
+            --text: #e5e7eb;
+            --muted: #9ca3af;
+            --accent: #22c55e;
+            --danger: #f43f5e
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+            background: var(--bg);
+            color: var(--text)
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--panel);
+            border-bottom: 1px solid #1f2937
+        }
+
+        header h1 {
+            margin: 0;
+            font-weight: 600;
+            font-size: 16px
+        }
+
+        header .actions {
+            display: flex;
+            gap: 8px
+        }
+
+        button {
+            appearance: none;
+            border: 1px solid #1f2937;
+            background: #0b1220;
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer
+        }
+
+        button.primary {
+            background: var(--accent);
+            border-color: #16a34a;
+            color: #0a0f1a;
+            font-weight: 600
+        }
+
+        button:disabled {
+            opacity: .6;
+            cursor: not-allowed
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding: 12px
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 40vh
+        }
+
+        .panel header {
+            border: 0;
+            background: transparent;
+            padding: 10px 12px
+        }
+
+        .panel header h2 {
+            margin: 0;
+            font-size: 13px;
+            color: var(--muted);
+            letter-spacing: .2px
+        }
+
+        .editor,
+        pre {
+            flex: 1;
+            overflow: auto
+        }
+
+        #editor {
+            height: 100%;
+        }
+
+        pre {
+            margin: 0;
+            padding: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.45
+        }
+
+        .out {
+            white-space: pre-wrap
+        }
+
+        #runlog {
+            border-top: 1px solid #1f2937;
+            background: #0b1220
+        }
+
+        .note {
+            color: var(--muted);
+            font-size: 12px;
+            padding: 8px 12px;
+            border-top: 1px solid #1f2937
+        }
+
+        footer {
+            padding: 8px 12px;
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        @media (max-width: 940px) {
+            main {
+                grid-template-columns: 1fr
+            }
+        }
+    </style>
+    <script>
+        // Register SW only in secure contexts (https or localhost), not on file://
+        if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(() => { });
+            });
+        }
+    </script>
+    <script>
+        // Dynamically load CodeMirror from CDN only when online; fallback stays usable offline
+        function loadCodeMirrorIfOnline() {
+            if (!navigator.onLine) return;
+            const head = document.head;
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.css';
+            head.appendChild(link);
+            const s1 = document.createElement('script');
+            s1.src = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js';
+            s1.onload = () => {
+                const s2 = document.createElement('script');
+                s2.src = 'https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/ruby/ruby.min.js';
+                s2.onload = () => { if (typeof window.initCodeMirrorUpgrade === 'function') window.initCodeMirrorUpgrade(); };
+                document.head.appendChild(s2);
+            };
+            document.head.appendChild(s1);
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <h1>Ruby → JavaScript Playground</h1>
+        <div class="actions">
+            <button id="compile" class="primary">Transpiler & Exécuter</button>
+            <button id="share">Partager (URL)</button>
+        </div>
+    </header>
+    <main>
+        <section class="panel">
+            <header>
+                <h2>Ruby</h2>
+            </header>
+            <div class="editor"><textarea id="editor"></textarea></div>
+            <div class="note">Ex: puts "Hello"</div>
+        </section>
+        <section class="panel">
+            <header>
+                <h2>JavaScript</h2>
+            </header>
+            <pre id="jsout"></pre>
+            <pre id="runlog" class="out"></pre>
+        </section>
+    </main>
+    <footer>
+        Offline ready: ce playground peut fonctionner en PWA une fois mis en cache par le service worker.
+    </footer>
+
+    <!-- Browser bundle exposing window.Diamond.transpile (built from src/* via esbuild) -->
+    <script src="./diamond.browser.js"></script>
+    <!-- Offline JS-only UI (squireel syntax), no CDN needed -->
+    <script src="./playground.app.js"></script>
+    <script>
+        const $ = (s) => document.querySelector(s);
+        let cm;
+        function setupEditor() {
+            const textarea = document.getElementById('editor');
+            const sample = `# Simple Ruby demo\nputs \"Hello from Ruby\"\n`;
+            const fromHash = new URLSearchParams(location.hash.slice(1)).get('code');
+            const initial = fromHash ? decodeURIComponent(fromHash) : sample;
+
+            if (window.CodeMirror && typeof window.CodeMirror.fromTextArea === 'function') {
+                cm = CodeMirror.fromTextArea(textarea, {
+                    mode: 'ruby', lineNumbers: true, theme: 'default', autofocus: true
+                });
+                cm.setValue(initial);
+            } else {
+                // Fallback: simple textarea API compatible with CodeMirror subset
+                textarea.value = initial;
+                cm = {
+                    getValue: () => textarea.value,
+                    setValue: (v) => { textarea.value = v; }
+                };
+            }
+        }
+
+        // If CodeMirror loads later (online), upgrade the textarea to CodeMirror preserving content
+        window.initCodeMirrorUpgrade = function () {
+            if (!window.CodeMirror || typeof window.CodeMirror.fromTextArea !== 'function') return;
+            const textarea = document.getElementById('editor');
+            const current = cm && typeof cm.getValue === 'function' ? cm.getValue() : textarea.value;
+            // If already a CM instance, skip
+            if (textarea.nextSibling && textarea.nextSibling.classList && textarea.nextSibling.classList.contains('CodeMirror')) return;
+            const instance = CodeMirror.fromTextArea(textarea, { mode: 'ruby', lineNumbers: true, theme: 'default', autofocus: true });
+            instance.setValue(current);
+            cm = instance;
+        }
+
+        function share() {
+            const code = cm.getValue();
+            const url = new URL(location.href);
+            url.hash = 'code=' + encodeURIComponent(code);
+            history.replaceState(null, '', url.toString());
+        }
+
+        function runJS(code) {
+            const log = $('#runlog');
+            log.textContent = '';
+            const consoleLog = console.log;
+            try {
+                console.log = (...args) => {
+                    log.textContent += args.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n';
+                    consoleLog.apply(console, args);
+                };
+                // sandboxed Function scope
+                new Function(code)();
+            } catch (e) {
+                log.textContent += 'Erreur: ' + (e && e.stack ? e.stack : e) + '\n';
+            } finally {
+                console.log = consoleLog;
+            }
+        }
+
+        function compileAndRun() {
+            const ruby = cm.getValue();
+            let code = '';
+            try {
+                const res = window.Diamond.transpile(ruby);
+                code = res.code;
+                $('#jsout').textContent = code;
+            } catch (e) {
+                code = `// Transpile error: ${'${'}e.message || e${'}'}`;
+                $('#jsout').textContent = code;
+                $('#runlog').textContent = 'Erreur transpile: ' + (e && e.stack ? e.stack : e);
+                return;
+            }
+            runJS(code);
+            share();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            setupEditor();
+            loadCodeMirrorIfOnline();
+            $('#compile').addEventListener('click', compileAndRun);
+            $('#share').addEventListener('click', share);
+        });
+    </script>
+</body>
+
+</html>
