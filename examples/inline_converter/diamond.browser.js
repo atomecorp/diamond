@@ -852,8 +852,28 @@ var Diamond = (() => {
           return { type: "CaseStatement", test, clauses, alternate };
         }
         parseReturnStatement() {
-          if (this.isTerminator(this.peek())) {
-            return { type: "ReturnStatement", argument: null };
+          const modifierAhead = this.check("KEYWORD", "if") || this.check("KEYWORD", "unless");
+          if (this.isTerminator(this.peek()) || modifierAhead) {
+            const statement2 = { type: "ReturnStatement", argument: null };
+            if (modifierAhead && (this.match("KEYWORD", "if") || this.match("KEYWORD", "unless"))) {
+              const keyword = this.previous().value;
+              const test = this.parseExpression();
+              if (keyword === "if") {
+                return {
+                  type: "IfStatement",
+                  test,
+                  consequent: { type: "BlockStatement", body: [statement2] },
+                  alternate: null
+                };
+              }
+              return {
+                type: "IfStatement",
+                test: { type: "UnaryExpression", operator: "!", argument: test },
+                consequent: { type: "BlockStatement", body: [statement2] },
+                alternate: null
+              };
+            }
+            return statement2;
           }
           const argument = this.parseExpression();
           const statement = { type: "ReturnStatement", argument };
@@ -1230,10 +1250,6 @@ var Diamond = (() => {
                 const next = this.tokens[this.current + 1];
                 if (next && next.type === "OPERATOR") {
                   if (next.value === "." || next.value === "&.") {
-                    this.advance();
-                    continue;
-                  }
-                  if (next.value === "[" && this.isIndexableExpression(expr)) {
                     this.advance();
                     continue;
                   }
@@ -2901,6 +2917,13 @@ var Diamond = (() => {
             lines.push("  return Number.isNaN(parsed) ? 0 : parsed;");
             lines.push("};");
           }
+          if (this.runtimeHelpers.has("toFloat")) {
+            if (lines.length) lines.push("");
+            lines.push("const __rubyToFloat = (value) => {");
+            lines.push('  const num = parseFloat(String(value ?? ""));');
+            lines.push("  return Number.isNaN(num) ? 0 : num;");
+            lines.push("};");
+          }
           if (this.runtimeHelpers.has("strftime")) {
             if (lines.length) lines.push("");
             lines.push("const __rubyStrftime = (format) => {");
@@ -3456,6 +3479,7 @@ var Diamond = (() => {
               }
               const declared = this.isIdentifierDeclared(name, context);
               if (!declared) {
+                const allowGlobal = context && context.allowGlobalIdentifier;
                 if (name === "__FILE__") {
                   this.requireRuntime("fileConstant");
                   return "__FILE__";
@@ -3481,6 +3505,9 @@ var Diamond = (() => {
                   return `__rubyEnsureError(${this.quote(name)})`;
                 }
                 if (/^[A-Z]/.test(name)) {
+                  return name;
+                }
+                if (allowGlobal) {
                   return name;
                 }
                 this.requireRuntime("send");
@@ -3681,10 +3708,18 @@ var Diamond = (() => {
           let memberObjectCode = null;
           if (node.callee.type === "OptionalMemberExpression" && !node.callee.computed && node.callee.property.type === "Identifier") {
             memberProperty = node.callee.property.name;
-            memberObjectCode = this.emitExpression(node.callee.object, context);
+            memberObjectCode = this.emitExpression(node.callee.object, {
+              ...context,
+              disableMethodLookup: true,
+              allowGlobalIdentifier: true
+            });
           } else if (node.callee.type === "MemberExpression" && !node.callee.computed && node.callee.property.type === "Identifier") {
             memberProperty = node.callee.property.name;
-            memberObjectCode = this.emitExpression(node.callee.object, context);
+            memberObjectCode = this.emitExpression(node.callee.object, {
+              ...context,
+              disableMethodLookup: true,
+              allowGlobalIdentifier: true
+            });
             if (node.callee.object.type === "Identifier" && node.callee.object.name === "gets") {
               memberObjectCode = this.emitGetsCall();
             }
@@ -3792,6 +3827,9 @@ var Diamond = (() => {
               const padArg = processedArgs[1] && processedArgs[1].code ? processedArgs[1].code : "undefined";
               return `__rubyRjust(${memberObjectCode}, ${widthArg}, ${padArg})`;
             }
+            if (memberProperty === "max" && node.arguments.length === 0) {
+              return `Math.max(...${memberObjectCode})`;
+            }
             if (memberProperty === "chars" && node.arguments.length === 0) {
               this.requireRuntime("chars");
               return `__rubyChars(${memberObjectCode})`;
@@ -3813,6 +3851,10 @@ var Diamond = (() => {
             if (memberProperty === "to_i" && node.arguments.length === 0) {
               this.requireRuntime("toInteger");
               return `__rubyToInteger(${memberObjectCode})`;
+            }
+            if (memberProperty === "to_f" && node.arguments.length === 0) {
+              this.requireRuntime("toFloat");
+              return `__rubyToFloat(${memberObjectCode})`;
             }
             if (memberProperty === "to_sym" && node.arguments.length === 0) {
               return `String(${memberObjectCode})`;
@@ -3925,7 +3967,11 @@ var Diamond = (() => {
             const isDeclared = scope ? scope.declared.has(node.callee.name) : false;
             calleeCode = isDeclared ? node.callee.name : `this.${node.callee.name}`;
           } else if (node.callee.type === "Identifier") {
-            calleeCode = node.callee.name;
+            if (context.methodType === "static" && !this.isIdentifierDeclared(node.callee.name, context) && this.isMethodName(node.callee.name, context)) {
+              calleeCode = `this.${node.callee.name}`;
+            } else {
+              calleeCode = node.callee.name;
+            }
           } else {
             calleeCode = this.emitExpression(node.callee, { ...context, disableMethodLookup: true });
           }
@@ -3977,7 +4023,8 @@ var Diamond = (() => {
               return callArgs2.length ? `eval(${callArgs2})` : "eval()";
             }
             const handledNames = ["proc", "instance_eval", "instance_exec", "block_given?", "define_method", "instance_variable_get", "instance_variable_set", "puts", "print", "gets"];
-            const needsImplicitSend = !this.isValidMethodName(node.callee.name) || !this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name);
+            const isStaticMethod = context.methodType === "static" && this.isMethodName(node.callee.name, context);
+            const needsImplicitSend = !this.isValidMethodName(node.callee.name) || !this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name) && !isStaticMethod;
             if (needsImplicitSend) {
               if (context.forceImplicitIdentifiers || !this.isValidMethodName(node.callee.name)) {
                 this.requireRuntime("send");
@@ -4011,7 +4058,11 @@ var Diamond = (() => {
           }
           if (!isConstructorCall && node.callee.type === "MemberExpression" && !node.callee.computed && node.callee.property.type === "Identifier") {
             this.requireRuntime("send");
-            const objectCode = this.emitExpression(node.callee.object, context);
+            const objectCode = this.emitExpression(node.callee.object, {
+              ...context,
+              disableMethodLookup: true,
+              allowGlobalIdentifier: true
+            });
             return `__rubySend(${objectCode}, ${this.quote(node.callee.property.name)}, ${argsArray}, ${blockArg})`;
           }
           if (isConstructorCall) {
@@ -4030,7 +4081,16 @@ var Diamond = (() => {
         }
         extractCalleeObjectCode(callee, context) {
           if (callee && callee.type === "MemberExpression") {
-            return this.emitExpression(callee.object, context);
+            const objectContext = {
+              ...context,
+              disableMethodLookup: true,
+              allowGlobalIdentifier: true
+            };
+            if (callee.object && callee.object.type === "Identifier" && context.methodType === "static" && this.isMethodName(callee.object.name, context)) {
+              objectContext.disableMethodLookup = false;
+              objectContext.allowGlobalIdentifier = false;
+            }
+            return this.emitExpression(callee.object, objectContext);
           }
           return null;
         }
@@ -4333,7 +4393,16 @@ var Diamond = (() => {
           return false;
         }
         emitMemberExpression(node, context) {
-          const objectCode = this.emitExpression(node.object, context);
+          const objectContext = {
+            ...context,
+            disableMethodLookup: true,
+            allowGlobalIdentifier: true
+          };
+          if (node.object && node.object.type === "Identifier" && context.methodType === "static" && this.isMethodName(node.object.name, context)) {
+            objectContext.disableMethodLookup = false;
+            objectContext.allowGlobalIdentifier = false;
+          }
+          const objectCode = this.emitExpression(node.object, objectContext);
           if (node.computed) {
             const propertyCode = this.emitExpression(node.property, context);
             return `${objectCode}[${propertyCode}]`;
@@ -4341,7 +4410,16 @@ var Diamond = (() => {
           return `${objectCode}.${node.property.name}`;
         }
         emitOptionalMemberExpression(node, context) {
-          let objectCode = this.emitExpression(node.object, context);
+          const objectContext = {
+            ...context,
+            disableMethodLookup: true,
+            allowGlobalIdentifier: true
+          };
+          if (node.object && node.object.type === "Identifier" && context.methodType === "static" && this.isMethodName(node.object.name, context)) {
+            objectContext.disableMethodLookup = false;
+            objectContext.allowGlobalIdentifier = false;
+          }
+          let objectCode = this.emitExpression(node.object, objectContext);
           if (["LogicalExpression", "BinaryExpression", "ConditionalExpression"].includes(node.object.type)) {
             objectCode = `(${objectCode})`;
           }
@@ -4903,12 +4981,23 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           this.indentLevel += 1;
           const lines = [];
           const trailing = [];
+          const classScopeStack = [bodyNode, ...context.scopeStack || []];
           for (const statement of bodyNode.body) {
             if (statement.type === "MethodDefinition") {
-              const stmtCode = this.emitMethodDefinition(statement, { ...context, inClass: true, scopeNode: statement });
+              const stmtCode = this.emitMethodDefinition(statement, {
+                ...context,
+                inClass: true,
+                scopeNode: statement,
+                scopeStack: classScopeStack
+              });
               if (stmtCode) lines.push(stmtCode);
             } else {
-              const stmtCode = this.emitStatement(statement, { ...context, classLevel: true, inClass: true });
+              const stmtCode = this.emitStatement(statement, {
+                ...context,
+                classLevel: true,
+                inClass: true,
+                scopeStack: classScopeStack
+              });
               if (stmtCode) trailing.push(stmtCode.replace(/^\s+/, ""));
             }
           }
@@ -4923,12 +5012,13 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
         emitIfStatement(node, context = {}, options = {}) {
           const indent = this.indent();
           const keyword = options.isElseIf ? "else if" : "if";
-          let code = `${indent}${keyword} (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.consequent, context)}`;
+          const branchContext = context.isTail ? context : { ...context, allowImplicitReturn: false };
+          let code = `${indent}${keyword} (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.consequent, branchContext)}`;
           if (node.alternate) {
             if (node.alternate.type === "IfStatement") {
               code += "\n" + this.emitIfStatement(node.alternate, context, { isElseIf: true });
             } else {
-              code += "\n" + indent + "else " + this.emitBlockStatement(node.alternate, context);
+              code += "\n" + indent + "else " + this.emitBlockStatement(node.alternate, branchContext);
             }
           }
           return code;
@@ -4949,8 +5039,11 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           let code = "{\n";
           this.indentLevel += 1;
           const lines = [];
-          for (const statement of node.body) {
-            const stmt = this.emitStatement(statement, context);
+          for (let index = 0; index < node.body.length; index += 1) {
+            const statement = node.body[index];
+            const isTail = index === node.body.length - 1;
+            const stmtContext = { ...context, isTail };
+            const stmt = this.emitStatement(statement, stmtContext);
             if (stmt) lines.push(stmt);
           }
           this.indentLevel -= 1;
@@ -5385,6 +5478,20 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           }
           return false;
         }
+        isDeclaredInScopeChain(name, scope) {
+          let current = scope;
+          while (current) {
+            if (current.declared) {
+              if (current.declared.has(name)) return true;
+              if (current.renamed && current.renamed.has(name)) {
+                const mapped = current.renamed.get(name);
+                if (current.declared.has(mapped)) return true;
+              }
+            }
+            current = current.parent ?? null;
+          }
+          return false;
+        }
         isMethodName(name, context = {}) {
           if (!name) return false;
           const stack = [];
@@ -5413,7 +5520,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
             return "globalThis";
           }
           if (context.methodType === "static" && context.currentClassName) {
-            return context.currentClassName;
+            return "this";
           }
           if (context.classLevel && context.currentClassName) {
             return context.currentClassName;
@@ -5449,7 +5556,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
         }
         collectProgram(node) {
           if (this.scopeInfo.has(node)) return;
-          const scope = this.createScope();
+          const scope = this.createScope(null);
           scope.kind = "program";
           this.scopeInfo.set(node, scope);
           for (const statement of node.body) {
@@ -5472,7 +5579,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           } else if (parentScope && parentScope.methods && node.id && node.id.name) {
             parentScope.methods.add(node.id.name);
           }
-          const scope = this.createScope();
+          const scope = this.createScope(parentScope);
           for (const param of node.params) {
             if (!param) continue;
             if (param.name) {
@@ -5492,8 +5599,8 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           this.scopeInfo.set(node, scope);
           this.collectNode(node.body, scope);
         }
-        createScope() {
-          return { declared: /* @__PURE__ */ new Set(), hoisted: /* @__PURE__ */ new Set(), renamed: /* @__PURE__ */ new Map(), methods: /* @__PURE__ */ new Set() };
+        createScope(parent = null) {
+          return { declared: /* @__PURE__ */ new Set(), hoisted: /* @__PURE__ */ new Set(), renamed: /* @__PURE__ */ new Map(), methods: /* @__PURE__ */ new Set(), parent };
         }
         collectNode(node, scope) {
           if (!node || typeof node !== "object") return;
@@ -5582,7 +5689,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
               this.collectMethod(node, scope);
               break;
             case "LambdaExpression":
-              this.collectLambda(node);
+              this.collectLambda(node, scope);
               break;
             case "SingletonClassDeclaration":
               this.collectNode(node.target, scope);
@@ -5616,7 +5723,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
               break;
             case "ClassDeclaration":
               if (!this.scopeInfo.has(node.body)) {
-                const classScope = this.createScope();
+                const classScope = this.createScope(scope);
                 classScope.kind = "class";
                 this.scopeInfo.set(node.body, classScope);
                 this.collectNode(node.body, classScope);
@@ -5634,7 +5741,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
         }
         collectBlock(block, parentScope) {
           if (!block || this.scopeInfo.has(block)) return;
-          const scope = this.createScope();
+          const scope = this.createScope(parentScope);
           for (const param of block.params) {
             scope.declared.add(param.name);
             this.registerReservedName(scope, param.name);
@@ -5646,9 +5753,9 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           this.scopeInfo.set(block, scope);
           this.collectNode(block.body, scope);
         }
-        collectLambda(node) {
+        collectLambda(node, parentScope) {
           if (this.scopeInfo.has(node)) return;
-          const scope = this.createScope();
+          const scope = this.createScope(parentScope);
           for (const param of node.params) {
             scope.declared.add(param.name);
             this.registerReservedName(scope, param.name);
@@ -5664,6 +5771,7 @@ ${indent}if (typeof globalThis !== "undefined") { globalThis.${methodName} = ${m
           if (!target || !scope) return;
           if (target.type === "Identifier") {
             const original = target.name;
+            if (this.isDeclaredInScopeChain(original, scope.parent ?? null)) return;
             if (!scope.renamed || !scope.renamed.has(original)) {
               this.registerReservedName(scope, original);
             }

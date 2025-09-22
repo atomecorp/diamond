@@ -1066,6 +1066,14 @@ class Emitter {
       lines.push('};');
     }
 
+    if (this.runtimeHelpers.has('toFloat')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyToFloat = (value) => {');
+      lines.push('  const num = parseFloat(String(value ?? ""));');
+      lines.push('  return Number.isNaN(num) ? 0 : num;');
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('strftime')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyStrftime = (format) => {');
@@ -1689,6 +1697,7 @@ class Emitter {
         }
         const declared = this.isIdentifierDeclared(name, context);
         if (!declared) {
+          const allowGlobal = context && context.allowGlobalIdentifier;
           if (name === '__FILE__') {
             this.requireRuntime('fileConstant');
             return '__FILE__';
@@ -1714,6 +1723,9 @@ class Emitter {
             return `__rubyEnsureError(${this.quote(name)})`;
           }
           if (/^[A-Z]/.test(name)) {
+            return name;
+          }
+          if (allowGlobal) {
             return name;
           }
           this.requireRuntime('send');
@@ -1953,14 +1965,22 @@ class Emitter {
       node.callee.property.type === 'Identifier'
     ) {
       memberProperty = node.callee.property.name;
-      memberObjectCode = this.emitExpression(node.callee.object, context);
+      memberObjectCode = this.emitExpression(node.callee.object, {
+        ...context,
+        disableMethodLookup: true,
+        allowGlobalIdentifier: true
+      });
     } else if (
       node.callee.type === 'MemberExpression' &&
       !node.callee.computed &&
       node.callee.property.type === 'Identifier'
     ) {
       memberProperty = node.callee.property.name;
-      memberObjectCode = this.emitExpression(node.callee.object, context);
+      memberObjectCode = this.emitExpression(node.callee.object, {
+        ...context,
+        disableMethodLookup: true,
+        allowGlobalIdentifier: true
+      });
 
       if (
         node.callee.object.type === 'Identifier' &&
@@ -2094,6 +2114,10 @@ class Emitter {
         return `__rubyRjust(${memberObjectCode}, ${widthArg}, ${padArg})`;
       }
 
+      if (memberProperty === 'max' && node.arguments.length === 0) {
+        return `Math.max(...${memberObjectCode})`;
+      }
+
       if (memberProperty === 'chars' && node.arguments.length === 0) {
         this.requireRuntime('chars');
         return `__rubyChars(${memberObjectCode})`;
@@ -2118,6 +2142,11 @@ class Emitter {
       if (memberProperty === 'to_i' && node.arguments.length === 0) {
         this.requireRuntime('toInteger');
         return `__rubyToInteger(${memberObjectCode})`;
+      }
+
+      if (memberProperty === 'to_f' && node.arguments.length === 0) {
+        this.requireRuntime('toFloat');
+        return `__rubyToFloat(${memberObjectCode})`;
       }
 
       if (memberProperty === 'to_sym' && node.arguments.length === 0) {
@@ -2259,7 +2288,15 @@ class Emitter {
       const isDeclared = scope ? scope.declared.has(node.callee.name) : false;
       calleeCode = isDeclared ? node.callee.name : `this.${node.callee.name}`;
     } else if (node.callee.type === 'Identifier') {
-      calleeCode = node.callee.name;
+      if (
+        context.methodType === 'static' &&
+        !this.isIdentifierDeclared(node.callee.name, context) &&
+        this.isMethodName(node.callee.name, context)
+      ) {
+        calleeCode = `this.${node.callee.name}`;
+      } else {
+        calleeCode = node.callee.name;
+      }
     } else {
       calleeCode = this.emitExpression(node.callee, { ...context, disableMethodLookup: true });
     }
@@ -2322,7 +2359,8 @@ class Emitter {
         return callArgs.length ? `eval(${callArgs})` : 'eval()';
       }
       const handledNames = ['proc', 'instance_eval', 'instance_exec', 'block_given?', 'define_method', 'instance_variable_get', 'instance_variable_set', 'puts', 'print', 'gets'];
-      const needsImplicitSend = !this.isValidMethodName(node.callee.name) || (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name));
+      const isStaticMethod = context.methodType === 'static' && this.isMethodName(node.callee.name, context);
+      const needsImplicitSend = !this.isValidMethodName(node.callee.name) || (!this.isIdentifierDeclared(node.callee.name, context) && !handledNames.includes(node.callee.name) && !isStaticMethod);
       if (needsImplicitSend) {
         if (context.forceImplicitIdentifiers || !this.isValidMethodName(node.callee.name)) {
           this.requireRuntime('send');
@@ -2366,7 +2404,11 @@ class Emitter {
 
     if (!isConstructorCall && node.callee.type === 'MemberExpression' && !node.callee.computed && node.callee.property.type === 'Identifier') {
       this.requireRuntime('send');
-      const objectCode = this.emitExpression(node.callee.object, context);
+      const objectCode = this.emitExpression(node.callee.object, {
+        ...context,
+        disableMethodLookup: true,
+        allowGlobalIdentifier: true
+      });
       return `__rubySend(${objectCode}, ${this.quote(node.callee.property.name)}, ${argsArray}, ${blockArg})`;
     }
 
@@ -2388,7 +2430,21 @@ class Emitter {
 
   extractCalleeObjectCode(callee, context) {
     if (callee && callee.type === 'MemberExpression') {
-      return this.emitExpression(callee.object, context);
+      const objectContext = {
+        ...context,
+        disableMethodLookup: true,
+        allowGlobalIdentifier: true
+      };
+      if (
+        callee.object &&
+        callee.object.type === 'Identifier' &&
+        context.methodType === 'static' &&
+        this.isMethodName(callee.object.name, context)
+      ) {
+        objectContext.disableMethodLookup = false;
+        objectContext.allowGlobalIdentifier = false;
+      }
+      return this.emitExpression(callee.object, objectContext);
     }
     return null;
   }
@@ -2733,7 +2789,21 @@ class Emitter {
   }
 
   emitMemberExpression(node, context) {
-    const objectCode = this.emitExpression(node.object, context);
+    const objectContext = {
+      ...context,
+      disableMethodLookup: true,
+      allowGlobalIdentifier: true
+    };
+    if (
+      node.object &&
+      node.object.type === 'Identifier' &&
+      context.methodType === 'static' &&
+      this.isMethodName(node.object.name, context)
+    ) {
+      objectContext.disableMethodLookup = false;
+      objectContext.allowGlobalIdentifier = false;
+    }
+    const objectCode = this.emitExpression(node.object, objectContext);
     if (node.computed) {
       const propertyCode = this.emitExpression(node.property, context);
       return `${objectCode}[${propertyCode}]`;
@@ -2742,7 +2812,21 @@ class Emitter {
   }
 
   emitOptionalMemberExpression(node, context) {
-    let objectCode = this.emitExpression(node.object, context);
+    const objectContext = {
+      ...context,
+      disableMethodLookup: true,
+      allowGlobalIdentifier: true
+    };
+    if (
+      node.object &&
+      node.object.type === 'Identifier' &&
+      context.methodType === 'static' &&
+      this.isMethodName(node.object.name, context)
+    ) {
+      objectContext.disableMethodLookup = false;
+      objectContext.allowGlobalIdentifier = false;
+    }
+    let objectCode = this.emitExpression(node.object, objectContext);
     if (['LogicalExpression', 'BinaryExpression', 'ConditionalExpression'].includes(node.object.type)) {
       objectCode = `(${objectCode})`;
     }
@@ -3373,12 +3457,24 @@ class Emitter {
     this.indentLevel += 1;
     const lines = [];
     const trailing = [];
+    const classScopeStack = [bodyNode, ...(context.scopeStack || [])];
+
     for (const statement of bodyNode.body) {
       if (statement.type === 'MethodDefinition') {
-        const stmtCode = this.emitMethodDefinition(statement, { ...context, inClass: true, scopeNode: statement });
+        const stmtCode = this.emitMethodDefinition(statement, {
+          ...context,
+          inClass: true,
+          scopeNode: statement,
+          scopeStack: classScopeStack
+        });
         if (stmtCode) lines.push(stmtCode);
       } else {
-        const stmtCode = this.emitStatement(statement, { ...context, classLevel: true, inClass: true });
+        const stmtCode = this.emitStatement(statement, {
+          ...context,
+          classLevel: true,
+          inClass: true,
+          scopeStack: classScopeStack
+        });
         if (stmtCode) trailing.push(stmtCode.replace(/^\s+/, ''));
       }
     }
@@ -3394,12 +3490,15 @@ class Emitter {
   emitIfStatement(node, context = {}, options = {}) {
     const indent = this.indent();
     const keyword = options.isElseIf ? 'else if' : 'if';
-    let code = `${indent}${keyword} (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.consequent, context)}`;
+    const branchContext = context.isTail
+      ? context
+      : { ...context, allowImplicitReturn: false };
+    let code = `${indent}${keyword} (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.consequent, branchContext)}`;
     if (node.alternate) {
       if (node.alternate.type === 'IfStatement') {
         code += '\n' + this.emitIfStatement(node.alternate, context, { isElseIf: true });
       } else {
-        code += '\n' + indent + 'else ' + this.emitBlockStatement(node.alternate, context);
+        code += '\n' + indent + 'else ' + this.emitBlockStatement(node.alternate, branchContext);
       }
     }
     return code;
@@ -3424,8 +3523,11 @@ class Emitter {
     let code = '{\n';
     this.indentLevel += 1;
     const lines = [];
-    for (const statement of node.body) {
-      const stmt = this.emitStatement(statement, context);
+    for (let index = 0; index < node.body.length; index += 1) {
+      const statement = node.body[index];
+      const isTail = index === node.body.length - 1;
+      const stmtContext = { ...context, isTail };
+      const stmt = this.emitStatement(statement, stmtContext);
       if (stmt) lines.push(stmt);
     }
     this.indentLevel -= 1;
@@ -3907,6 +4009,21 @@ class Emitter {
     return false;
   }
 
+  isDeclaredInScopeChain(name, scope) {
+    let current = scope;
+    while (current) {
+      if (current.declared) {
+        if (current.declared.has(name)) return true;
+        if (current.renamed && current.renamed.has(name)) {
+          const mapped = current.renamed.get(name);
+          if (current.declared.has(mapped)) return true;
+        }
+      }
+      current = current.parent ?? null;
+    }
+    return false;
+  }
+
   isMethodName(name, context = {}) {
     if (!name) return false;
     const stack = [];
@@ -3936,7 +4053,7 @@ class Emitter {
       return 'globalThis';
     }
     if (context.methodType === 'static' && context.currentClassName) {
-      return context.currentClassName;
+      return 'this';
     }
     if (context.classLevel && context.currentClassName) {
       return context.currentClassName;
@@ -3978,7 +4095,7 @@ class Emitter {
 
   collectProgram(node) {
     if (this.scopeInfo.has(node)) return;
-    const scope = this.createScope();
+    const scope = this.createScope(null);
     scope.kind = 'program';
     this.scopeInfo.set(node, scope);
     for (const statement of node.body) {
@@ -4002,7 +4119,7 @@ class Emitter {
     } else if (parentScope && parentScope.methods && node.id && node.id.name) {
       parentScope.methods.add(node.id.name);
     }
-    const scope = this.createScope();
+    const scope = this.createScope(parentScope);
     for (const param of node.params) {
       if (!param) continue;
       if (param.name) {
@@ -4023,8 +4140,8 @@ class Emitter {
     this.collectNode(node.body, scope);
   }
 
-  createScope() {
-    return { declared: new Set(), hoisted: new Set(), renamed: new Map(), methods: new Set() };
+  createScope(parent = null) {
+    return { declared: new Set(), hoisted: new Set(), renamed: new Map(), methods: new Set(), parent };
   }
 
   collectNode(node, scope) {
@@ -4114,7 +4231,7 @@ class Emitter {
         this.collectMethod(node, scope);
         break;
       case 'LambdaExpression':
-        this.collectLambda(node);
+        this.collectLambda(node, scope);
         break;
       case 'SingletonClassDeclaration':
         this.collectNode(node.target, scope);
@@ -4148,7 +4265,7 @@ class Emitter {
         break;
       case 'ClassDeclaration':
         if (!this.scopeInfo.has(node.body)) {
-          const classScope = this.createScope();
+          const classScope = this.createScope(scope);
           classScope.kind = 'class';
           this.scopeInfo.set(node.body, classScope);
           this.collectNode(node.body, classScope);
@@ -4167,7 +4284,7 @@ class Emitter {
 
   collectBlock(block, parentScope) {
     if (!block || this.scopeInfo.has(block)) return;
-    const scope = this.createScope();
+    const scope = this.createScope(parentScope);
     for (const param of block.params) {
       scope.declared.add(param.name);
       this.registerReservedName(scope, param.name);
@@ -4180,9 +4297,9 @@ class Emitter {
     this.collectNode(block.body, scope);
   }
 
-  collectLambda(node) {
+  collectLambda(node, parentScope) {
     if (this.scopeInfo.has(node)) return;
-    const scope = this.createScope();
+    const scope = this.createScope(parentScope);
     for (const param of node.params) {
       scope.declared.add(param.name);
       this.registerReservedName(scope, param.name);
@@ -4199,6 +4316,7 @@ class Emitter {
     if (!target || !scope) return;
     if (target.type === 'Identifier') {
       const original = target.name;
+      if (this.isDeclaredInScopeChain(original, scope.parent ?? null)) return;
       if (!scope.renamed || !scope.renamed.has(original)) {
         this.registerReservedName(scope, original);
       }

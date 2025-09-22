@@ -10,6 +10,7 @@ let invoice;
 let list;
 let m;
 let obj;
+let on_ready;
 let processed;
 let q;
 let r;
@@ -563,6 +564,11 @@ const __rubyToInteger = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const __rubyToFloat = (value) => {
+  const num = parseFloat(String(value ?? ""));
+  return Number.isNaN(num) ? 0 : num;
+};
+
 const __rubyStrftime = (format) => {
   const date = new Date();
   const replacements = {
@@ -672,6 +678,202 @@ const __rubyRaise = (...args) => {
   throw new Error(String(first));
 };
 
+on_ready = () => {
+  let box;
+  let boxX;
+  let boxY;
+  let container;
+  let dragging;
+  let dropzone;
+  let handle;
+  let isOver;
+  let label;
+  let moveDrag;
+  let parse_translate;
+  let resizing;
+  let startDrag;
+  let startH;
+  let startW;
+  let startX;
+  let startY;
+  let stopDrag;
+  container = __rubySend(document, "createElement", ["div"], undefined);
+  container["style"]["width"] = "100%";
+  container["style"]["height"] = "100vh";
+  container["style"]["margin"] = "0";
+  container["style"]["display"] = "flex";
+  container["style"]["alignItems"] = "center";
+  container["style"]["justifyContent"] = "center";
+  container["style"]["background"] = "linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%)";
+  container["style"]["position"] = "relative";
+  __rubySend(document["body"], "appendChild", [container], undefined);
+  box = __rubySend(document, "createElement", ["div"], undefined);
+  box["style"]["width"] = "220px";
+  box["style"]["height"] = "140px";
+  box["style"]["borderRadius"] = "16px";
+  box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
+  box["style"]["background"] = "linear-gradient(135deg, #6EE7F9 0%, #9333EA 100%)";
+  box["style"]["position"] = "relative";
+  box["style"]["cursor"] = "grab";
+  box["style"]["userSelect"] = "none";
+  box["style"]["transform"] = "translate(0px, 0px)";
+  box["style"]["transition"] = "transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease";
+  __rubySend(container, "appendChild", [box], undefined);
+  label = __rubySend(document, "createElement", ["div"], undefined);
+  label["style"]["color"] = "#fff";
+  label["style"]["fontFamily"] = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  label["style"]["fontSize"] = "14px";
+  label["style"]["padding"] = "12px";
+  label["innerText"] = "Click / Tap / Drag me";
+  __rubySend(box, "appendChild", [label], undefined);
+  handle = __rubySend(document, "createElement", ["div"], undefined);
+  handle["style"]["position"] = "absolute";
+  handle["style"]["right"] = "6px";
+  handle["style"]["bottom"] = "6px";
+  handle["style"]["width"] = "14px";
+  handle["style"]["height"] = "14px";
+  handle["style"]["borderRadius"] = "3px";
+  handle["style"]["background"] = "rgba(255,255,255,.85)";
+  handle["style"]["boxShadow"] = "0 1px 3px rgba(0,0,0,.3)";
+  handle["style"]["cursor"] = "nwse-resize";
+  __rubySend(box, "appendChild", [handle], undefined);
+  __rubySend(box, "addEventListener", ["mouseenter", (e) => {
+    return box["style"]["boxShadow"] = "0 14px 32px rgba(0,0,0,.32)";
+  }], undefined);
+  __rubySend(box, "addEventListener", ["mouseleave", (e) => {
+    return box["style"]["boxShadow"] = "0 10px 25px rgba(0,0,0,.25)";
+  }], undefined);
+  __rubySend(box, "addEventListener", ["click", (e) => {
+    return __rubySend(console, "log", ["clicked"], undefined);
+  }], undefined);
+  __rubySend(box, "addEventListener", ["touchstart", (e) => {
+    return __rubySend(console, "log", ["tap"], undefined);
+  }], undefined);
+  dragging = false;
+  startX = 0;
+  startY = 0;
+  boxX = 0;
+  boxY = 0;
+  parse_translate = (t) => {
+    let m;
+    m = __rubyMatch(new RegExp("translate\\(([-\\d.]+)px, ([-\\d.]+)px\\)", ""), t);
+    if (m) {
+      return [__rubyToFloat(m[1]), __rubyToFloat(m[2])];
+    }
+    else {
+      return [0, 0];
+    }
+  };
+  startDrag = (clientX, clientY) => {
+    let coords;
+    dragging = true;
+    box["style"]["cursor"] = "grabbing";
+    box["style"]["transition"] = "none";
+    startX = clientX;
+    startY = clientY;
+    coords = parse_translate(box["style"]["transform"] || "");
+    boxX = coords[0];
+    return boxY = coords[1];
+  };
+  moveDrag = (clientX, clientY) => {
+    let dx;
+    let dy;
+    if (!dragging) {
+      return;
+    }
+    dx = __rubyMinus(clientX, startX);
+    dy = __rubyMinus(clientY, startY);
+    return box["style"]["transform"] = `translate(${__rubyToInteger(boxX + dx)}px, ${__rubyToInteger(boxY + dy)}px)`;
+  };
+  stopDrag = () => {
+    dragging = false;
+    box["style"]["cursor"] = "grab";
+    return box["style"]["transition"] = "transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease";
+  };
+  __rubySend(box, "addEventListener", ["mousedown", (e) => {
+    startDrag(e["clientX"], e["clientY"]);
+    return e["preventDefault"]();
+  }], undefined);
+  __rubySend(document, "addEventListener", ["mousemove", (e) => {
+    return moveDrag(e["clientX"], e["clientY"]);
+  }], undefined);
+  __rubySend(document, "addEventListener", ["mouseup", (e) => {
+    return stopDrag();
+  }], undefined);
+  __rubySend(box, "addEventListener", ["touchstart", (e) => {
+    let t;
+    t = e["touches"][0];
+    return startDrag(t["clientX"], t["clientY"]);
+  }], undefined);
+  __rubySend(document, "addEventListener", ["touchmove", (e) => {
+    let t;
+    t = e["touches"][0];
+    return moveDrag(t["clientX"], t["clientY"]);
+  }], undefined);
+  __rubySend(document, "addEventListener", ["touchend", (e) => {
+    return stopDrag();
+  }], undefined);
+  resizing = false;
+  startW = 0;
+  startH = 0;
+  __rubySend(handle, "addEventListener", ["mousedown", (e) => {
+    resizing = true;
+    startX = e["clientX"];
+    startY = e["clientY"];
+    startW = box["offsetWidth"];
+    startH = box["offsetHeight"];
+    e["stopPropagation"]();
+    return e["preventDefault"]();
+  }], undefined);
+  __rubySend(document, "addEventListener", ["mousemove", (e) => {
+    let dh;
+    let dw;
+    let h;
+    let w;
+    if (resizing) {
+      dw = __rubyMinus(e["clientX"], startX);
+      dh = __rubyMinus(e["clientY"], startY);
+      w = __rubyToInteger(Math.max(...[100, startW + dw]));
+      h = __rubyToInteger(Math.max(...[80, startH + dh]));
+      box["style"]["width"] = `${w}px`;
+      return box["style"]["height"] = `${h}px`;
+    }
+  }], undefined);
+  __rubySend(document, "addEventListener", ["mouseup", (e) => {
+    return resizing = false;
+  }], undefined);
+  dropzone = __rubySend(document, "createElement", ["div"], undefined);
+  dropzone["style"]["position"] = "absolute";
+  dropzone["style"]["top"] = "20px";
+  dropzone["style"]["left"] = "20px";
+  dropzone["style"]["width"] = "120px";
+  dropzone["style"]["height"] = "80px";
+  dropzone["style"]["border"] = "2px dashed rgba(255,255,255,.75)";
+  dropzone["style"]["borderRadius"] = "8px";
+  dropzone["style"]["color"] = "#fff";
+  dropzone["style"]["display"] = "flex";
+  dropzone["style"]["alignItems"] = "center";
+  dropzone["style"]["justifyContent"] = "center";
+  dropzone["innerText"] = "Drop here";
+  __rubySend(container, "appendChild", [dropzone], undefined);
+  isOver = (el, x, y) => {
+    let r;
+    r = el["getBoundingClientRect"]();
+    return x >= r["left"] && x <= r["right"] && y >= r["top"] && y <= r["bottom"];
+  };
+  return __rubySend(document, "addEventListener", ["mouseup", (e) => {
+    if (isOver(dropzone, e["clientX"], e["clientY"])) {
+      box["style"]["transform"] = "translate(20px, 20px)";
+      return __rubySend(console, "log", ["dropped"], undefined);
+    }
+  }], undefined);
+};
+if (document["readyState"] === "loading") {
+  __rubySend(document, "addEventListener", ["DOMContentLoaded", on_ready], undefined);
+}
+else {
+  on_ready();
+}
 console.log("----- Full example -----");
 say = "I love Ruby";
 console.log(say);
@@ -1558,11 +1760,11 @@ class Universe {
     return this.__messages ||= {  };
   }
   static on(message_id, block) {
-    return __rubySend(Universe, "messages", [], undefined)[message_id] = block;
+    return __rubySend(this, "messages", [], undefined)[message_id] = block;
   }
   static server_receiver(params) {
     let callback_found;
-    callback_found = __rubySend(Universe, "messages", [], undefined)[params["message_id"]];
+    callback_found = __rubySend(this, "messages", [], undefined)[params["message_id"]];
     if (typeof callback_found === 'function') {
       return callback_found(params);
     }
@@ -1616,7 +1818,7 @@ class Greeter {
     let i;
     i = 0;
     while (i < times) {
-      return console.log(`Hello ${this.__name}!`);
+      console.log(`Hello ${this.__name}!`);
       return i += 1;
     }
   }

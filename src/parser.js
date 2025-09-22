@@ -396,9 +396,30 @@ class Parser {
   }
 
   parseReturnStatement() {
-    if (this.isTerminator(this.peek())) {
-      return { type: 'ReturnStatement', argument: null };
+    const modifierAhead = this.check('KEYWORD', 'if') || this.check('KEYWORD', 'unless');
+    if (this.isTerminator(this.peek()) || modifierAhead) {
+      const statement = { type: 'ReturnStatement', argument: null };
+      if (modifierAhead && (this.match('KEYWORD', 'if') || this.match('KEYWORD', 'unless'))) {
+        const keyword = this.previous().value;
+        const test = this.parseExpression();
+        if (keyword === 'if') {
+          return {
+            type: 'IfStatement',
+            test,
+            consequent: { type: 'BlockStatement', body: [statement] },
+            alternate: null
+          };
+        }
+        return {
+          type: 'IfStatement',
+          test: { type: 'UnaryExpression', operator: '!', argument: test },
+          consequent: { type: 'BlockStatement', body: [statement] },
+          alternate: null
+        };
+      }
+      return statement;
     }
+
     const argument = this.parseExpression();
     const statement = { type: 'ReturnStatement', argument };
     if (this.match('KEYWORD', 'if') || this.match('KEYWORD', 'unless')) {
@@ -817,10 +838,6 @@ class Parser {
           const next = this.tokens[this.current + 1];
           if (next && next.type === 'OPERATOR') {
             if (next.value === '.' || next.value === '&.') {
-              this.advance();
-              continue;
-            }
-            if (next.value === '[' && this.isIndexableExpression(expr)) {
               this.advance();
               continue;
             }

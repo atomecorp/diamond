@@ -78,6 +78,7 @@ parse_translate = ->(t) {
 startDrag = ->(clientX, clientY) {
   dragging = true
   box['style']['cursor'] = 'grabbing'
+  box['style']['transition'] = 'none'
   startX = clientX
   startY = clientY
   coords = parse_translate.call(box['style']['transform'] || '')
@@ -95,6 +96,7 @@ moveDrag = ->(clientX, clientY) {
 stopDrag = -> {
   dragging = false
   box['style']['cursor'] = 'grab'
+  box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
 }
 
 # Mouse drag
