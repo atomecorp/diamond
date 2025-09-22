@@ -61,36 +61,26 @@ box.addEventListener('touchstart', ->(e) { console.log('tap') })
 
 # Drag logic
 dragging = false
-startX = 0
-startY = 0
-boxX = 0.0
-boxY = 0.0
-
-parse_translate = ->(t) {
-  m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.match(t)
-  if m
-    [m[1].to_f, m[2].to_f]
-  else
-    [0.0, 0.0]
-  end
-}
+startX = 0.0
+startY = 0.0
+currentX = 0.0
+currentY = 0.0
 
 startDrag = ->(clientX, clientY) {
   dragging = true
   box['style']['cursor'] = 'grabbing'
   box['style']['transition'] = 'none'
-  startX = clientX
-  startY = clientY
-  coords = parse_translate.call(box['style']['transform'] || '')
-  boxX = coords[0]
-  boxY = coords[1]
+  startX = clientX - currentX
+  startY = clientY - currentY
 }
 
 moveDrag = ->(clientX, clientY) {
   return unless dragging
-  dx = clientX - startX
-  dy = clientY - startY
-  box['style']['transform'] = "translate(#{(boxX + dx).to_i}px, #{(boxY + dy).to_i}px)"
+  newX = clientX - startX
+  newY = clientY - startY
+  currentX = newX
+  currentY = newY
+  box['style']['transform'] = "translate(#{currentX}px, #{currentY}px)"
 }
 
 stopDrag = -> {
@@ -125,12 +115,29 @@ resizing = false
 startW = 0
 startH = 0
 
+# Keep previous layout/transform to suspend transform during resize
+prevTransform = ''
+prevMarginLeft = ''
+prevMarginTop = ''
+prevTransition = ''
+
 handle.addEventListener('mousedown', ->(e) {
   resizing = true
   startX = e['clientX']
   startY = e['clientY']
   startW = box['offsetWidth']
   startH = box['offsetHeight']
+
+  # Suspend transform while resizing to avoid jank
+  prevTransform = box['style']['transform'] || ''
+  prevMarginLeft = box['style']['marginLeft'] || ''
+  prevMarginTop = box['style']['marginTop'] || ''
+  prevTransition = box['style']['transition'] || ''
+
+  box['style']['transition'] = 'none'
+  box['style']['transform'] = 'none'
+  box['style']['marginLeft'] = "#{currentX}px"
+  box['style']['marginTop'] = "#{currentY}px"
   e['stopPropagation'].call()
   e['preventDefault'].call()
 })
@@ -145,7 +152,20 @@ document.addEventListener('mousemove', ->(e) {
     box['style']['height'] = "#{h}px"
   end
 })
-document.addEventListener('mouseup', ->(e) { resizing = false })
+document.addEventListener('mouseup', ->(e) {
+  if resizing
+    resizing = false
+    # Restore transform and transition once done resizing
+    box['style']['transform'] = prevTransform
+    box['style']['marginLeft'] = prevMarginLeft
+    box['style']['marginTop'] = prevMarginTop
+    if prevTransition == ''
+      box['style']['transition'] = 'transform .2s ease, width .2s ease, height .2s ease, box-shadow .2s ease'
+    else
+      box['style']['transition'] = prevTransition
+    end
+  end
+})
 
 # Simple drop zone
 dropzone = document.createElement('div')
@@ -170,7 +190,22 @@ isOver = ->(el, x, y) {
 
 document.addEventListener('mouseup', ->(e) {
   if isOver.call(dropzone, e['clientX'], e['clientY'])
+    currentX = 20
+    currentY = 20
     box['style']['transform'] = 'translate(20px, 20px)'
     console.log('dropped')
+  end
+})
+
+document.addEventListener('touchend', ->(e) {
+  changed = e['changedTouches']
+  if changed && changed['length'] > 0
+    t = changed[0]
+    if isOver.call(dropzone, t['clientX'], t['clientY'])
+      currentX = 20
+      currentY = 20
+      box['style']['transform'] = 'translate(20px, 20px)'
+      console.log('dropped')
+    end
   end
 })
