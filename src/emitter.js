@@ -3,6 +3,8 @@ const { Parser } = require('./parser');
 
 class Emitter {
   constructor(options = {}) {
+    this.mode = options.mode === 'fast' ? 'fast' : 'strict';
+    this.fastMode = this.mode === 'fast';
     this.indentSize = options.indent ?? 2;
     this.indentLevel = 0;
     this.scopeInfo = new Map();
@@ -2539,6 +2541,27 @@ class Emitter {
       return `${objectCode}?.${node.callee.property.name}${callSuffix}`;
     }
 
+    if (
+      this.isFastMode() &&
+      !isConstructorCall &&
+      node.callee.type === 'MemberExpression' &&
+      !node.callee.computed &&
+      node.callee.property.type === 'Identifier' &&
+      !blockCode &&
+      blockArg === 'undefined' &&
+      !hasForwardingArg &&
+      !inlineBlockNode
+    ) {
+      const objectCode = this.emitExpression(node.callee.object, {
+        ...context,
+        disableMethodLookup: true,
+        allowGlobalIdentifier: true
+      });
+      const args = finalArgCodes.join(', ');
+      const callSuffix = args.length ? `(${args})` : '()';
+      return `${objectCode}.${node.callee.property.name}${callSuffix}`;
+    }
+
     if (!isConstructorCall && node.callee.type === 'MemberExpression' && !node.callee.computed && node.callee.property.type === 'Identifier') {
       this.requireRuntime('send');
       const objectCode = this.emitExpression(node.callee.object, {
@@ -2942,6 +2965,12 @@ class Emitter {
     }
     const objectCode = this.emitExpression(node.object, objectContext);
     if (node.computed) {
+      if (this.isFastMode()) {
+        const staticName = this.getStaticPropertyName(node.property);
+        if (staticName && this.isSafeJsIdentifier(staticName)) {
+          return `${objectCode}.${staticName}`;
+        }
+      }
       const propertyCode = this.emitExpression(node.property, context);
       return `${objectCode}[${propertyCode}]`;
     }
@@ -2968,6 +2997,12 @@ class Emitter {
       objectCode = `(${objectCode})`;
     }
     if (node.computed) {
+      if (this.isFastMode()) {
+        const staticName = this.getStaticPropertyName(node.property);
+        if (staticName && this.isSafeJsIdentifier(staticName)) {
+          return `${objectCode}?.${staticName}`;
+        }
+      }
       const propertyCode = this.emitExpression(node.property, context);
       return `${objectCode}?.[${propertyCode}]`;
     }
@@ -2990,19 +3025,24 @@ class Emitter {
       const right = this.emitExpression(node.right, context);
       return `__rubyArrayPush(${left}, ${right})`;
     }
+    const leftExpr = this.emitExpression(node.left, context);
+    const rightExpr = this.emitExpression(node.right, context);
+    const wrappedLeft = this.wrapBinaryOperand(node.left, leftExpr);
+    const wrappedRight = this.wrapBinaryOperand(node.right, rightExpr);
+
+    const fastNumericOps = ['+', '-', '*', '/', '%'];
+    if (this.isFastMode() && fastNumericOps.includes(node.operator)) {
+      if (this.isManifestlyNumeric(node.left) && this.isManifestlyNumeric(node.right)) {
+        return `${wrappedLeft} ${node.operator} ${wrappedRight}`;
+      }
+    }
+
     if (node.operator === '-') {
       this.requireRuntime('minus');
-      const leftExpr = this.emitExpression(node.left, context);
-      const rightExpr = this.emitExpression(node.right, context);
       return `__rubyMinus(${leftExpr}, ${rightExpr})`;
     }
-    const left = node.left.type === 'LogicalExpression'
-      ? `(${this.emitExpression(node.left, context)})`
-      : this.emitExpression(node.left, context);
-    const right = node.right.type === 'LogicalExpression'
-      ? `(${this.emitExpression(node.right, context)})`
-      : this.emitExpression(node.right, context);
-    return `${left} ${this.mapBinaryOperator(node.operator)} ${right}`;
+
+    return `${wrappedLeft} ${this.mapBinaryOperator(node.operator)} ${wrappedRight}`;
   }
 
   emitStringLiteral(node, context) {
@@ -4198,6 +4238,40 @@ class Emitter {
       return context.currentClassName;
     }
     return 'this';
+  }
+
+  isFastMode() {
+    return this.fastMode;
+  }
+
+  isSafeJsIdentifier(name) {
+    if (!name) return false;
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+  }
+
+  getStaticPropertyName(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (node.type === 'Identifier') return node.name;
+    if (node.type === 'StringLiteral') return node.value;
+    if (node.type === 'SymbolLiteral') return node.name;
+    return null;
+  }
+
+  isManifestlyNumeric(node) {
+    if (!node || typeof node !== 'object') return false;
+    if (node.type === 'NumericLiteral') return true;
+    if (node.type === 'UnaryExpression' && ['+', '-'].includes(node.operator)) {
+      return this.isManifestlyNumeric(node.argument);
+    }
+    return false;
+  }
+
+  wrapBinaryOperand(node, code) {
+    if (!node || typeof node !== 'object') return code;
+    if (node.type === 'LogicalExpression') {
+      return `(${code})`;
+    }
+    return code;
   }
 
   resolveIdentifierName(name, context = {}) {

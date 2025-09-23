@@ -7,7 +7,8 @@ function printHelp() {
   console.log(`Usage: ruby2js <input.rb> [options]\n\n` +
     `Options:\n` +
     `  -o, --out <file>    Write transpiled JavaScript to the specified file\n` +
-    `  -s                  Write alongside the input using the same basename and .js\n` + // ajouté
+    `  -s                  Write alongside the input using the same basename and .js\n` +
+    `      --fast          Emit more idiomatic/faster JavaScript when safe\n` +
     `  --ast               Print the intermediate AST to stderr\n` +
     `  -h, --help          Show this message`);
 }
@@ -18,6 +19,7 @@ function main() {
   let outputPath = null;
   let showAst = false;
   let sameName = false; // ajouté
+  let mode = 'strict';
 
   while (args.length) {
     const arg = args.shift();
@@ -31,6 +33,8 @@ function main() {
       }
     } else if (arg === '-s') { // ajouté
       sameName = true;
+    } else if (arg === '--fast') {
+      mode = 'fast';
     } else if (arg === '-h' || arg === '--help') {
       printHelp();
       return;
@@ -57,7 +61,7 @@ function main() {
   }
 
   try {
-    const result = transpile(source);
+    const result = transpile(source, { mode });
     if (showAst) {
       console.error(JSON.stringify(result.ast, null, 2));
     }

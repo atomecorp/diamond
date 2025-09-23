@@ -11,6 +11,10 @@ function runTranspiled(source) {
   return { code, context };
 }
 
+function transpileFast(source) {
+  return transpile(source, { mode: 'fast' }).code;
+}
+
 (function testImplicitReturnInLoop() {
   const { context } = runTranspiled(`
 def counter
@@ -109,6 +113,24 @@ after = s
     assert.strictEqual(regexToken.value.pattern, expected.pattern, `Pattern mismatch for source: ${source}`);
     assert.strictEqual(regexToken.value.flags, expected.flags, `Flags mismatch for source: ${source}`);
   }
+})();
+
+(function testFastModeDirectCall() {
+  const code = transpileFast(`
+def invoke(obj)
+  obj.foo(1, 2)
+end
+`);
+  assert.ok(/obj\.foo\(1, 2\)/.test(code), 'Expected direct member call in fast mode');
+})();
+
+(function testFastModeNumericOps() {
+  const code = transpileFast(`
+def add
+  1 + 2
+end
+`);
+  assert.ok(/1 \+ 2/.test(code), 'Expected direct numeric addition in fast mode');
 })();
 
 console.log('P0 tests passed');
