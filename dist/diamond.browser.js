@@ -2101,19 +2101,45 @@ var Diamond = (() => {
           }
           if (this.runtimeHelpers.has("jsBridge")) {
             if (lines.length) lines.push("");
-            lines.push("const __rubyJS = (() => {");
-            lines.push('  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : {});');
-            lines.push("  return {");
-            lines.push("    eval(code) {");
-            lines.push('      const source = String(code ?? "");');
-            lines.push("      const fn = new Function(source);");
-            lines.push("      return fn();");
-            lines.push("    },");
-            lines.push("    global() {");
-            lines.push("      return root;");
-            lines.push("    }");
-            lines.push("  };");
-            lines.push("})();");
+            lines.push("const JS = (() => {");
+            lines.push('  if (typeof globalThis !== "undefined" && globalThis.JS) return globalThis.JS;');
+            const bridgeLogic = [
+              "  const bridge = {",
+              "    global() {",
+              '      if (typeof globalThis !== "undefined") return globalThis;',
+              '      if (typeof window !== "undefined") return window;',
+              '      if (typeof self !== "undefined") return self;',
+              "      return {};",
+              "    },",
+              "    eval(code) {",
+              '      const source = String(code ?? "");',
+              "      return (function(execCode) { return eval(execCode); })(source);",
+              "    },",
+              "    get(path) {",
+              "      const root = this.global();",
+              "      if (!path) return root;",
+              '      return String(path).split(".").reduce((value, key) => (value == null ? value : value[key]), root);',
+              "    },",
+              "    set(path, value) {",
+              "      const root = this.global();",
+              "      if (!path) return value;"
+            ];
+            lines.push(...bridgeLogic);
+            const bridgeTail = [
+              '      const parts = String(path).split(".");',
+              "      const last = parts.pop();",
+              "      const target = parts.length ? parts.reduce((obj, key) => (obj == null ? obj : obj[key]), root) : root;",
+              "      if (target != null && last) {",
+              "        target[last] = value;",
+              "      }",
+              "      return value;",
+              "    }",
+              "  };",
+              '  if (typeof globalThis !== "undefined") globalThis.JS = bridge;',
+              "  return bridge;",
+              "})();"
+            ];
+            lines.push(...bridgeTail);
           }
           if (this.runtimeHelpers.has("ivarName")) {
             if (lines.length) lines.push("");
@@ -3582,7 +3608,7 @@ var Diamond = (() => {
                 }
                 if (name === "JS") {
                   this.requireRuntime("jsBridge");
-                  return "__rubyJS";
+                  return "JS";
                 }
                 const runtimeConstants = {
                   Thread: "thread",

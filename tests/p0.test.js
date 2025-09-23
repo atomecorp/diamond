@@ -36,6 +36,37 @@ end
   assert.strictEqual(vm.runInContext('only_loop()', context), undefined);
 })();
 
+(function testStringIndexedAssignmentWithSubstring() {
+  const { context } = runTranspiled(`
+s = "I love Ruby"
+result = (s["love"] = "love")
+`);
+  assert.strictEqual(vm.runInContext('result', context), 'love');
+  assert.strictEqual(vm.runInContext('s', context), 'I love Ruby');
+})();
+
+(function testStringIndexedAssignmentWithRegex() {
+  const { context } = runTranspiled(`
+s = "Color: red"
+result = (s[/red/] = "blue")
+`);
+  assert.strictEqual(vm.runInContext('result', context), 'blue');
+  assert.strictEqual(vm.runInContext('s', context), 'Color: blue');
+})();
+
+(function testJSBridgeExposure() {
+  const { context } = runTranspiled(`
+global_ref = JS.global()
+JS.eval("globalThis.__bridgeEval = 21")
+JS.set("bridgeSet", 42)
+fetched_eval = JS.get("__bridgeEval")
+fetched_set = JS.get("bridgeSet")
+`);
+  assert.strictEqual(vm.runInContext('global_ref === globalThis', context), true);
+  assert.strictEqual(vm.runInContext('fetched_eval', context), 21);
+  assert.strictEqual(vm.runInContext('fetched_set', context), 42);
+})();
+
 (function testStringAssign() {
   const { context } = runTranspiled(`
 s = "hello"

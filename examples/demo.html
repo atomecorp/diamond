@@ -21,20 +21,6 @@
 </head>
 
 <body>
-  <script>
-    if (typeof window.JS === 'undefined') {
-      window.JS = {
-        global: function () {
-          if (typeof globalThis !== 'undefined') return globalThis;
-          if (typeof window !== 'undefined') return window;
-          return {};
-        },
-        eval: function (code) {
-          return (function (execCode) { return eval(execCode); })(code);
-        }
-      };
-    }
-  </script>
   <p id="output">(en attente…)</p>
   <script src="./full_test.js" defer></script>
 </body>

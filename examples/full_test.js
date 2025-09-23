@@ -124,18 +124,38 @@ const __rubyClassName = (value) => {
   return typeof value;
 };
 
-const __rubyJS = (() => {
-  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : {});
-  return {
+const JS = (() => {
+  if (typeof globalThis !== "undefined" && globalThis.JS) return globalThis.JS;
+  const bridge = {
+    global() {
+      if (typeof globalThis !== "undefined") return globalThis;
+      if (typeof window !== "undefined") return window;
+      if (typeof self !== "undefined") return self;
+      return {};
+    },
     eval(code) {
       const source = String(code ?? "");
-      const fn = new Function(source);
-      return fn();
+      return (function(execCode) { return eval(execCode); })(source);
     },
-    global() {
-      return root;
+    get(path) {
+      const root = this.global();
+      if (!path) return root;
+      return String(path).split(".").reduce((value, key) => (value == null ? value : value[key]), root);
+    },
+    set(path, value) {
+      const root = this.global();
+      if (!path) return value;
+      const parts = String(path).split(".");
+      const last = parts.pop();
+      const target = parts.length ? parts.reduce((obj, key) => (obj == null ? obj : obj[key]), root) : root;
+      if (target != null && last) {
+        target[last] = value;
+      }
+      return value;
     }
   };
+  if (typeof globalThis !== "undefined") globalThis.JS = bridge;
+  return bridge;
 })();
 
 const __rubyIvarName = (name) => {
@@ -750,11 +770,11 @@ const __rubyRaise = (...args) => {
   throw new Error(String(first));
 };
 
-__rubySend(__rubyJS, "eval", ["console.log('Hello from Ruby via JS.eval!')"], undefined);
+__rubySend(JS, "eval", ["console.log('Hello from Ruby via JS.eval!')"], undefined);
 factor = 7;
-__rubySend(__rubyJS, "eval", [`const squared = ${factor} * ${factor}; console.log('Squared via JS code:', squared)`], undefined);
+__rubySend(JS, "eval", [`const squared = ${factor} * ${factor}; console.log('Squared via JS code:', squared)`], undefined);
 tag_value = "ruby-bridge";
-__rubySend(__rubyJS, "global", [], undefined)["document"]["body"]["setAttribute"]("data-from-ruby", tag_value);
+__rubySend(JS, "global", [], undefined)["document"]["body"]["setAttribute"]("data-from-ruby", tag_value);
 container = __rubySend(document, "createElement", ["div"], undefined);
 (() => {
   const __stringAssignTarget1 = container["style"];
@@ -1044,7 +1064,7 @@ window_obj = null;
   let __handled146 = false;
   try {
     __result145 = (() => {
-    return window_obj = __rubySend(__rubyJS, "global", [], undefined)["window"];
+    return window_obj = __rubySend(JS, "global", [], undefined)["window"];
   }).call(this);
   } catch (__error147) {
     if (!__handled146 && __rubyRescueMatch(__error147, ["NameError"])) {
