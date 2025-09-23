@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "build-browser": "node scripts/build-browser.js",
+    "build-browser:watch": "node scripts/build-browser.js --watch"
+  },
   "devDependencies": {
     "esbuild": "^0.25.10"
   }

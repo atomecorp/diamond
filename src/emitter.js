@@ -267,6 +267,36 @@ class Emitter {
       lines.push('const __rubySwapcaseBang = (value) => __rubySwapcase(value);');
     }
 
+    if (this.runtimeHelpers.has('stringAssign')) {
+      if (lines.length) lines.push('');
+      lines.push('const __rubyStringAssign = (source, key, value) => {');
+      lines.push('  const original = String(source ?? "");');
+      const stringAssignLogic = [
+        '  const replacement = value == null ? "" : String(value);',
+        '  if (typeof key === "number" || typeof key === "bigint") {',
+        '    const index = Number(key);',
+        '    if (!Number.isInteger(index)) return original;',
+        '    const length = original.length;',
+        '    const normalized = index < 0 ? length + index : index;',
+        '    if (normalized < 0 || normalized > length) return original;',
+        '    if (normalized === length) return original + replacement;',
+        '    return original.slice(0, normalized) + replacement + original.slice(normalized + 1);',
+        '  }',
+        '  if (key instanceof RegExp) {',
+        '    const flags = key.flags.replace(/g/g, "");',
+        '    const regex = new RegExp(key.source, flags);',
+        '    return original.replace(regex, replacement);',
+        '  }',
+        '  const needle = key == null ? "" : String(key);',
+        '  if (!needle.length) return original;',
+        '  const position = original.indexOf(needle);',
+        '  if (position === -1) return original;',
+        '  return original.slice(0, position) + replacement + original.slice(position + needle.length);'
+      ];
+      lines.push(...stringAssignLogic);
+      lines.push('};');
+    }
+
     if (this.runtimeHelpers.has('ljust')) {
       if (lines.length) lines.push('');
       lines.push('const __rubyLjust = (value, width, padding) => {');
@@ -1818,20 +1848,61 @@ class Emitter {
   }
 
   emitAssignmentExpression(node, context) {
+    if (node.operator === '=') {
+      if (node.left.type === 'MemberExpression') {
+        if (node.left.computed) {
+          const objectContext = {
+            ...context,
+            disableMethodLookup: true,
+            allowGlobalIdentifier: true
+          };
+          if (
+            node.left.object &&
+            node.left.object.type === 'Identifier' &&
+            context.methodType === 'static' &&
+            this.isMethodName(node.left.object.name, context)
+          ) {
+            objectContext.disableMethodLookup = false;
+            objectContext.allowGlobalIdentifier = false;
+          }
+          const objectExpr = this.emitExpression(node.left.object, objectContext);
+          const keyExpr = this.emitExpression(node.left.property, context);
+          const valueExpr = this.emitExpression(node.right, context);
+          const objectTemp = this.generateUniqueId('__stringAssignTarget');
+          const keyTemp = this.generateUniqueId('__stringAssignKey');
+          const valueTemp = this.generateUniqueId('__stringAssignValue');
+          const resultTemp = this.generateUniqueId('__stringAssignResult');
+          const assignableTarget = this.resolveStringAssignableTarget(node.left.object, context);
+          const lines = [];
+          lines.push('(() => {');
+          lines.push(`  const ${objectTemp} = ${objectExpr};`);
+          lines.push(`  const ${keyTemp} = ${keyExpr};`);
+          lines.push(`  const ${valueTemp} = ${valueExpr};`);
+          if (assignableTarget) {
+            this.requireRuntime('stringAssign');
+            lines.push(`  if (typeof ${objectTemp} === 'string' || ${objectTemp} instanceof String) {`);
+            lines.push(`    const ${resultTemp} = __rubyStringAssign(${objectTemp}, ${keyTemp}, ${valueTemp});`);
+            lines.push(`    ${assignableTarget} = ${resultTemp};`);
+            lines.push(`    return ${valueTemp};`);
+            lines.push('  }');
+          }
+          lines.push(`  ${objectTemp}[${keyTemp}] = ${valueTemp};`);
+          lines.push(`  return ${valueTemp};`);
+          lines.push('})()');
+          return lines.join('\n');
+        } else if (node.left.property.type === 'Identifier') {
+          const objectCode = this.emitExpression(node.left.object, context);
+          const rightExpr = this.emitExpression(node.right, context);
+          const methodName = `${node.left.property.name}=`;
+          return `${objectCode}[${this.quote(methodName)}](${rightExpr})`;
+        }
+      }
+      const leftExpr = this.emitAssignmentTarget(node.left, context);
+      const rightExpr = this.emitExpression(node.right, context);
+      return `${leftExpr} = ${rightExpr}`;
+    }
     const left = this.emitAssignmentTarget(node.left, context);
     const right = this.emitExpression(node.right, context);
-    if (node.operator === '=') {
-      if (
-        node.left.type === 'MemberExpression' &&
-        !node.left.computed &&
-        node.left.property.type === 'Identifier'
-      ) {
-        const objectCode = this.emitExpression(node.left.object, context);
-        const methodName = `${node.left.property.name}=`;
-        return `${objectCode}[${this.quote(methodName)}](${right})`;
-      }
-      return `${left} = ${right}`;
-    }
     return `${left} ${node.operator} ${right}`;
   }
 
@@ -1860,6 +1931,25 @@ class Emitter {
         return this.emitExpression(target, context);
       default:
         return this.emitExpression(target, context);
+    }
+  }
+
+  resolveStringAssignableTarget(target, context) {
+    if (!target) return null;
+    switch (target.type) {
+      case 'Identifier': {
+        if (!this.isIdentifierDeclared(target.name, context)) {
+          return null;
+        }
+        const resolved = this.resolveIdentifierName(target.name, context);
+        return resolved ?? null;
+      }
+      case 'InstanceVariable':
+        return this.instanceVariableReference(target.name);
+      case 'ClassVariable':
+        return `this.constructor.${target.name}`;
+      default:
+        return null;
     }
   }
 
@@ -3527,12 +3617,14 @@ class Emitter {
 
   emitWhileStatement(node, context = {}) {
     const indent = this.indent();
-    return `${indent}while (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.body, context)}`;
+    const bodyContext = { ...context, allowImplicitReturn: false };
+    return `${indent}while (${this.emitExpression(node.test, context)}) ${this.emitBlockStatement(node.body, bodyContext)}`;
   }
 
   emitLoopStatement(node, context = {}) {
     const indent = this.indent();
-    return `${indent}while (true) ${this.emitBlockStatement(node.body, context)}`;
+    const bodyContext = { ...context, allowImplicitReturn: false };
+    return `${indent}while (true) ${this.emitBlockStatement(node.body, bodyContext)}`;
   }
 
   emitReturnStatement(node, context = {}) {

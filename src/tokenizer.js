@@ -113,29 +113,62 @@ class Tokenizer {
     this.advance();
     let pattern = '';
     let escaped = false;
+    let inCharClass = false;
+    let charClassCanClose = false;
 
     while (!this.isEOF()) {
       const char = this.peek();
-      if (!escaped) {
-        if (char === '\\') {
-          escaped = true;
+      if (escaped) {
+        pattern += char;
+        escaped = false;
+        this.advance();
+        if (inCharClass) charClassCanClose = true;
+        continue;
+      }
+
+      if (char === '\\') {
+        pattern += char;
+        escaped = true;
+        this.advance();
+        continue;
+      }
+
+      if (char === '\n') {
+        throw new SyntaxError(`Unterminated regex literal at ${startLine}:${startColumn}`);
+      }
+
+      if (inCharClass) {
+        if (char === ']' && charClassCanClose) {
           pattern += char;
           this.advance();
+          inCharClass = false;
+          charClassCanClose = false;
           continue;
         }
-        if (char === '/') {
-          break;
-        }
-        if (char === '\n') {
-          throw new SyntaxError(`Unterminated regex literal at ${startLine}:${startColumn}`);
-        }
+        pattern += char;
+        this.advance();
+        if (!charClassCanClose) charClassCanClose = true;
+        continue;
+      }
+
+      if (char === '[') {
+        inCharClass = true;
+        charClassCanClose = false;
         pattern += char;
         this.advance();
         continue;
       }
+
+      if (char === '/') {
+        break;
+      }
+
       pattern += char;
-      escaped = false;
       this.advance();
+    }
+
+    if (escaped || inCharClass) {
+      throw new SyntaxError(`Unterminated regex literal at ${startLine}:${startColumn}`);
     }
 
     if (this.peek() !== '/') {
